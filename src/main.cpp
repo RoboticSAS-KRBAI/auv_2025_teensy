@@ -1012,7 +1012,7 @@ void run_control_loop()
     }
     else if (status == "all")
     {
-        ssyController.control(0, 1, (t_yaw), thrust_ssy);
+        ssyController.control(0, 2, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "all_boost")
