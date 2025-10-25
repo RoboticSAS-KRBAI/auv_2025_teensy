@@ -612,7 +612,7 @@ void run_control_loop() {
     if (s_cDataUpdate & ACC_UPDATE) {
         pitch = sReg[AY] / 32768.0f * 16.0f;  // karena sempat terbalik posisi sensornya, defaultnya sReg[AX]
         roll = sReg[AX] / 32768.0f * 16.0f;   // karena sempat terbalik posisi sensornya, defaultnya sReg[AY]
-        yaw = sReg[AZ] / 32768.0f * 16.0f; // Ambil nilai Yaw
+        yaw = sReg[Yaw] / 32768.0f * 180.0f; // Ambil nilai Yaw
         s_cDataUpdate &= ~ACC_UPDATE;
     }
 
