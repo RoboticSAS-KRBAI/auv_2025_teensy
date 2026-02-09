@@ -7,6 +7,7 @@
 #include <Wire.h>
 #include "MS5837.h"
 #define ACC_UPDATE 0x01
+#define ANGLE_UPDATE 0x02
 /////////////////////
 /// For Micro ROS ///
 /////////////////////
@@ -159,6 +160,75 @@ class PID {
     float last_error;
 };
 
+// Simple Kalman Filter for Yaw (Angle & Bias)
+class SimpleKalmanYaw {
+  public:
+    float Q_angle;   // Process noise variance for the angle
+    float Q_bias;    // Process noise variance for the gyro bias
+    float R_measure; // Measurement noise variance
+
+    float angle; // The angle calculated by the Kalman filter - part of the 2x1 state vector
+    float bias;  // The gyro bias calculated by the Kalman filter - part of the 2x1 state vector
+    float rate;  // Unbiased rate calculated from the rate and the calculated bias
+
+    float P[2][2]; // Error covariance matrix - This is a 2x2 matrix
+
+    SimpleKalmanYaw(float Qa, float Qb, float Rm) {
+      Q_angle = Qa;
+      Q_bias = Qb;
+      R_measure = Rm;
+
+      angle = 0;
+      bias = 0;
+
+      P[0][0] = 0; P[0][1] = 0;
+      P[1][0] = 0; P[1][1] = 0;
+    };
+
+    // Predict step: Update state estimate based on gyro rate
+    void predict(float newRate, float dt) {
+      rate = newRate - bias;
+      angle += rate * dt;
+
+      // Update estimation error covariance
+      P[0][0] += dt * (dt * P[1][1] - P[0][1] - P[1][0] + Q_angle);
+      P[0][1] -= dt * P[1][1];
+      P[1][0] -= dt * P[1][1];
+      P[1][1] += Q_bias * dt;
+    }
+
+    // Update step: Correct state estimate based on measurement
+    void update(float newAngle) {
+      // Calculate innovation (measurement residual) with wrap-around check
+      float y = newAngle - angle;
+      if (y > 180) y -= 360;
+      if (y < -180) y += 360;
+
+      float S = P[0][0] + R_measure;
+      float K[2];
+      K[0] = P[0][0] / S;
+      K[1] = P[1][0] / S;
+
+      angle += K[0] * y;
+      bias += K[1] * y;
+
+      float P00_temp = P[0][0];
+      float P01_temp = P[0][1];
+
+      P[0][0] -= K[0] * P00_temp;
+      P[0][1] -= K[0] * P01_temp;
+      P[1][0] -= K[1] * P00_temp;
+      P[1][1] -= K[1] * P01_temp;
+      
+      // Normalize angle
+      if (angle < 0) angle += 360;
+      if (angle >= 360) angle -= 360;
+    }
+
+    float getAngle() { return angle; }
+    void setAngle(float ang) { angle = ang; }
+};
+
 // SSY Controller Class
 class SSYController {
   public:
@@ -216,6 +286,10 @@ class DPRController {
 // Controller instances
 SSYController ssyController(1.0);
 DPRController dprController(0.5, 0.5);
+
+// Kalman Filter instance
+// Q_angle=0.001, Q_bias=0.003, R_measure=0.03 (Adjust R based on sensor noise)
+SimpleKalmanYaw kalmanYaw(0.001, 0.003, 0.03);
 
 // Helper functions
 float calculate_heading_error(float current, float target) {
@@ -533,6 +607,9 @@ static void SensorDataUpdata(uint32_t uiReg, uint32_t uiRegNum) {
     if (uiReg == AZ) {
       s_cDataUpdate |= ACC_UPDATE;
     }
+    if (uiReg == GX) {
+      s_cDataUpdate |= ANGLE_UPDATE;
+    }
     uiReg++;
   }
 }
@@ -640,8 +717,10 @@ void run_control_loop() {
     delta_yaw = abs(last_yaw - yaw);
 
     uint8_t result = nodemod.readHoldingRegisters(0xDE, 1);
+    bool compass_updated = false;
 
     if (result == nodemod.ku8MBSuccess) {
+    compass_updated = true;
     int16_t raw = nodemod.getResponseBuffer(0);
 
     // RAW → YAW (derajat)
@@ -670,6 +749,26 @@ void run_control_loop() {
         pitch = sReg[AY] / 32768.0f * 16.0f;
         roll = sReg[AX] / 32768.0f * 16.0f;
         s_cDataUpdate &= ~ACC_UPDATE;
+    }
+
+    if (s_cDataUpdate & ANGLE_UPDATE) {
+      // Calculate Gyro Rate (deg/s) for Yaw (Z-axis)
+      // Using user provided formula structure: fGyro[i] = sReg[GX+i] / 32768.0f * 2000.0f;
+      float gyroZ = sReg[GZ] / 32768.0f * 2000.0f; 
+
+      // Predict Step (Always runs on gyro update)
+      kalmanYaw.predict(gyroZ, dt);
+      
+      // Update Step (Only if compass measurement is fresh)
+      if (compass_updated) {
+        // yaw variable currently holds the raw compass value from Modbus block above
+        kalmanYaw.update(yaw); 
+      }
+      
+      // Update global yaw to the filtered value
+      yaw = kalmanYaw.getAngle();
+
+      s_cDataUpdate &= ~ANGLE_UPDATE;
     }
 
     // Update depth from sensor
