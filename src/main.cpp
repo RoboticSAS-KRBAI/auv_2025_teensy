@@ -18,10 +18,10 @@
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
 #include <rmw_microros/rmw_microros.h>
-#include "AdaptiveKalmanYaw.h"
+// #include "AdaptiveKalmanYaw.h"
 
-// Deklarasi instance Kalman Filter (taruh bersama global variables)
-AdaptiveKalmanYaw kalman_yaw(0.0, 0.01, 0.5, 2.0);
+// // Deklarasi instance Kalman Filter (taruh bersama global variables)
+// AdaptiveKalmanYaw kalman_yaw(0.0, 0.01, 0.5, 2.0);
 
 // Variables untuk sensor
 float gyro_yaw_raw = 0.0;      // Dari WitMotion gyro (integrated yaw)
