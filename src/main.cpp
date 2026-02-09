@@ -18,6 +18,35 @@
 #include <rclc/rclc.h>
 #include <rclc/executor.h>
 #include <rmw_microros/rmw_microros.h>
+#include "AdaptiveKalmanYaw.h"
+
+// Deklarasi instance Kalman Filter (taruh bersama global variables)
+AdaptiveKalmanYaw kalman_yaw(0.0, 0.01, 0.5, 2.0);
+
+// Variables untuk sensor
+float gyro_yaw_raw = 0.0;      // Dari WitMotion gyro (integrated yaw)
+float compass_yaw_raw = 0.0;   // Dari HWT3100 compass
+float gyro_rate = 0.0;         // Angular velocity dari gyro (deg/s)
+float dt = 0.01;               // Time step (10ms = 100Hz)
+unsigned long last_time = 0;
+
+#include <ModbusMaster.h>
+
+// #define RXD2 16
+// #define TXD2 17
+#define DE_RE 20
+
+ModbusMaster nodemod;
+
+void preTransmission() {
+  digitalWrite(DE_RE, HIGH);   // Mode TX
+  delayMicroseconds(50);      // Teensy cepat, tak perlu 80 µs
+}
+
+void postTransmission() {
+  delayMicroseconds(50);
+  digitalWrite(DE_RE, LOW);    // Mode RX
+}
 
 // Message headers
 #include <std_msgs/msg/string.h>
@@ -97,7 +126,7 @@ String class_name = "None";
 int camera_error = 0;
 String status = "stop";
 
-byte pin_thruster[10] = { 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+byte pin_thruster[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
 Servo thruster[10];
 MS5837 sensor;
 
@@ -491,8 +520,8 @@ void destroy_entities() {
 
 // Sensor communication functions
 static void SensorUartSend(uint8_t *p_data, uint32_t uiSize) {
-  Serial8.write(p_data, uiSize);
-  Serial8.flush();
+  Serial6.write(p_data, uiSize);
+  Serial6.flush();
 }
 
 static void Delayms(uint16_t ucMs) {
@@ -511,15 +540,15 @@ static void SensorDataUpdata(uint32_t uiReg, uint32_t uiRegNum) {
 static void AutoScanSensor(void) {
   int iRetry;
   for (size_t i = 0; i < sizeof(c_uiBaud) / sizeof(c_uiBaud[0]); i++) {
-    Serial8.begin(c_uiBaud[i]);
-    Serial8.flush();
+    Serial6.begin(c_uiBaud[i]);
+    Serial6.flush();
     iRetry = 2;
     s_cDataUpdate = 0;
     do {
       WitReadReg(AX, 3);
       delay(200);
-      while (Serial8.available()) {
-        WitSerialDataIn(Serial8.read());
+      while (Serial6.available()) {
+        WitSerialDataIn(Serial6.read());
       }
       if (s_cDataUpdate != 0) {
         Serial.print(c_uiBaud[i]);
@@ -538,8 +567,18 @@ void setup() {
   set_microros_serial_transports(Serial);
 
   // Initialize sensor communication
-  Serial5.begin(115200); // Yaw
-  Serial8.begin(115200); // Pitch & Roll
+  // Serial7.begin(115200); // Yaw
+  pinMode(DE_RE, OUTPUT);
+  digitalWrite(DE_RE, LOW); // Start in RX mode
+
+  Serial7.begin(9600, SERIAL_8N1);
+
+  nodemod.begin(0x00, Serial7);
+
+  nodemod.preTransmission(preTransmission);
+  nodemod.postTransmission(postTransmission);
+
+  Serial6.begin(115200); // Pitch & Roll
   WitInit(WIT_PROTOCOL_NORMAL, 0x50);
   WitSerialWriteRegister(SensorUartSend);
   WitRegisterCallBack(SensorDataUpdata);
@@ -585,32 +624,51 @@ void setup() {
   // Initialize state
   state = WAITING_AGENT;
   Serial.println("Setup completed");
+  last_time = millis();
 }
 
 void run_control_loop() {
-// Sensor data processing
+  // 1. Hitung delta time
+    unsigned long current_time = millis();
+    dt = (current_time - last_time) / 1000.0;  // Convert ke detik
+    last_time = current_time;
+
+  // Sensor data processing
     delta_depth = abs(last_depth - depth);
     delta_roll = abs(last_roll - roll);
     delta_pitch = abs(last_pitch - pitch);
     delta_yaw = abs(last_yaw - yaw);
 
-    // Read yaw from Serial5
-    if (Serial5.available()) {
-        String data_str = Serial5.readStringUntil('\n');
-        if (data_str.indexOf("Yaw:") != -1) {
-        yawIndex = data_str.indexOf("Yaw:") + 4;
-        yaw = data_str.substring(yawIndex).toFloat();
-        }
-    }
+    uint8_t result = nodemod.readHoldingRegisters(0xDE, 1);
 
-    // Read pitch and roll from Serial8
-    while (Serial8.available()) {
-        WitSerialDataIn(Serial8.read());
+    if (result == nodemod.ku8MBSuccess) {
+    int16_t raw = nodemod.getResponseBuffer(0);
+
+    // RAW → YAW (derajat)
+    yaw = raw / 10.0f;    // 0.1° per LSB
+    yaw = -yaw;           // balik arah kalau perlu
+
+    // Normalisasi 0–360
+    if (yaw < 0)       yaw += 360.0f;
+    if (yaw >= 360.0) yaw -= 360.0f;
+
+    Serial.print("Compass Heading: ");
+    Serial.print(yaw, 1);
+    Serial.println(" deg");
+
+  } else {
+    Serial.print("Modbus Error: 0x");
+    Serial.println(result, HEX);
+  }
+
+    // Read pitch and roll from Serial6
+    while (Serial6.available()) {
+        WitSerialDataIn(Serial6.read());
     }
 
     if (s_cDataUpdate & ACC_UPDATE) {
-        pitch = sReg[AX] / 32768.0f * 16.0f;
-        roll = sReg[AY] / 32768.0f * 16.0f;
+        pitch = sReg[AY] / 32768.0f * 16.0f;
+        roll = sReg[AX] / 32768.0f * 16.0f;
         s_cDataUpdate &= ~ACC_UPDATE;
     }
 
