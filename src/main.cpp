@@ -727,28 +727,28 @@ void run_control_loop() {
         dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(0), thrust_dpr);
     } 
     else if (status == "all") {
-        ssyController.control(0, 2, -(t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(0, 0.5, (t_yaw), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "all_boost") {
-        ssyController.control(0, 2, -(t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(0, 2, (t_yaw), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "backward") {
-        ssyController.control(0, -2, -(t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(0, -2, (t_yaw), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "all_slow") {
-        ssyController.control(0, 1, -(t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(0, 1, (t_yaw), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "last") {
         ssyController.control(0, 2, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "last_slow") {
         ssyController.control(0, 1, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "pitch") {
         ssyController.control(0, 0, 0, thrust_ssy);
@@ -756,10 +756,10 @@ void run_control_loop() {
     }
     else if (status == "roll") {
         ssyController.control(0, 0, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(error_roll), thrust_dpr);
+        dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "yaw") {
-        ssyController.control(0, 0, -(t_yaw), thrust_ssy);
+        ssyController.control(0, 0, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(0), thrust_dpr);
     }
     else if (status == "depth") {
@@ -768,51 +768,51 @@ void run_control_loop() {
     }
     else if (status == "dpr") {
         ssyController.control(0, 0, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "dpr_ssy") {
-        ssyController.control(0, 0, -(t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(0, 0, (t_yaw), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "camera") {
         ssyController.control(0, 1, camera_yaw, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "camera_sway") {
         ssyController.control((camera_yaw * 0.5), 0, (camera_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "camera_yaw") {
         ssyController.control(0, 0, (camera_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "camera_sway_forward") {
-        ssyController.control(-(camera_yaw * 0.5), 1, -(t_yaw * 0.5), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(-(camera_yaw * 0.5), 1, (t_yaw * 0.5), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_right_forward") {
-        ssyController.control(-3, 1, -(t_yaw + 2), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(-3, 1, (t_yaw + 2), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_left_forward") {
-        ssyController.control(3, 2, -(t_yaw - 2), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(3, 2, (t_yaw - 2), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_right") {
-        ssyController.control(-3, 0, -(t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(-3, 0, (t_yaw), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_left") {
-        ssyController.control(3, 0.4, -(t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(3, 0.4, (t_yaw), thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "yaw_right") {
-        ssyController.control(0, 0, 0.3, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(0, 0, -0.3, thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "yaw_left") {
-        ssyController.control(0, 0, -0.3, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(error_roll), thrust_dpr);
+        ssyController.control(0, 0, 0.3, thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
 
     // Calculate PWM values
@@ -820,10 +820,10 @@ void run_control_loop() {
     pwm_thruster[1] = constrain(1500 - (thrust_ssy[0] * 500.0), min_pwm, max_pwm);
     pwm_thruster[2] = constrain(1500 - (thrust_ssy[3] * 500.0), min_pwm, max_pwm);
     pwm_thruster[3] = constrain(1500 - (thrust_ssy[2] * 500.0), min_pwm, max_pwm);
-    pwm_thruster[4] = constrain(1500 + thrust_dpr[2], min_pwm, max_pwm);
+    pwm_thruster[4] = constrain(1500 - thrust_dpr[2], min_pwm, max_pwm); // +
     pwm_thruster[5] = constrain(1500 - thrust_dpr[1], min_pwm, max_pwm);
     pwm_thruster[6] = constrain(1500 + thrust_dpr[0], min_pwm, max_pwm);
-    pwm_thruster[7] = constrain(1500 - thrust_dpr[3], min_pwm, max_pwm);
+    pwm_thruster[7] = constrain(1500 + thrust_dpr[3], min_pwm, max_pwm); // -
     pwm_thruster[8] = constrain(1500 - (thrust_ssy[1] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
     pwm_thruster[9] = constrain(1500 - (thrust_ssy[0] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
 
