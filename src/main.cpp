@@ -727,7 +727,7 @@ void run_control_loop() {
         dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(0), thrust_dpr);
     } 
     else if (status == "all") {
-        ssyController.control(0, 0.5, (t_yaw), thrust_ssy); 2
+        ssyController.control(0, 0.5, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "all_boost") {
