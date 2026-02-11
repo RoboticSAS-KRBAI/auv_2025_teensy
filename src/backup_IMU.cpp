@@ -612,7 +612,7 @@
 //     if (s_cDataUpdate & ACC_UPDATE) {
 //         pitch = sReg[AX] / 32768.0f * 16.0f;
 //         roll = sReg[AY] / 32768.0f * 16.0f;
-//         yaw = sReg[AZ] / 32768.0f * 16.0f; // Ambil nilai Yaw
+//         yaw = sReg[YAW] / 32768.0f * 16.0f; // Ambil nilai Yaw
 //         s_cDataUpdate &= ~ACC_UPDATE;
 //     }
 
