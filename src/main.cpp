@@ -7,56 +7,89 @@
 #undef TEMP
 #include <Wire.h>
 #include "MS5837.h"
-#include <ModbusMaster.h>
-
-// ============== CONFIGURATION (HARDCODED) ==============
-#define DE_RE 20
-#define SET_POINT_YAW 0.0
-#define SET_POINT_PITCH 90.0
-#define SET_POINT_ROLL 0.0
-#define SET_POINT_DEPTH 0.0
-
-// PID Coefficients (Hardcoded)
-#define KP_YAW 0.1
-#define KI_YAW 0.01
-#define KD_YAW 0.05
-
-#define KP_PITCH 0.5
-#define KI_PITCH 0.05
-#define KD_PITCH 0.1
-
-#define KP_ROLL 0.5
-#define KI_ROLL 0.05
-#define KD_ROLL 0.1
-
-#define KP_DEPTH 0.2
-#define KI_DEPTH 0.02
-#define KD_DEPTH 0.05
-
-#define KP_CAMERA 0.1
-#define KI_CAMERA 0.01
-#define KD_CAMERA 0.05
-
 #define ACC_UPDATE 0x01
 
-// ============== MODBUS & SENSOR SETUP ==============
+/////////////////////
+/// For Micro ROS ///
+/////////////////////
+#include <micro_ros_platformio.h>
+#include <stdio.h>
+#include <rcl/rcl.h>
+#include <rcl/error_handling.h>
+#include <rclc/rclc.h>
+#include <rclc/executor.h>
+#include <rmw_microros/rmw_microros.h>
+#include <ModbusMaster.h>
+
+void run_control_loop(); 
+
+// Initialize ModbusMaster HWT3100
+#define DE_RE 20
+
 ModbusMaster nodemod;
 
 void preTransmission() {
   digitalWrite(DE_RE, HIGH);
-  delayMicroseconds(50);
+  delayMicroseconds(10);     
 }
 
 void postTransmission() {
-  delayMicroseconds(50);
+  delayMicroseconds(10);
   digitalWrite(DE_RE, LOW);
 }
 
-// Sensor communication
-static volatile char s_cDataUpdate = 0;
-const uint32_t c_uiBaud[8] = { 0, 4800, 9600, 19200, 38400, 57600, 115200, 230400 };
-float sqrt2 = sqrt(2);
-MS5837 sensor;
+// Message headers
+#include <std_msgs/msg/string.h>
+#include <std_msgs/msg/float32.h>
+#include <rosidl_runtime_c/string_functions.h>
+#include <auv_interfaces/msg/multi_pid.h>
+#include <auv_interfaces/msg/set_point.h>
+#include <auv_interfaces/msg/actuator.h>
+#include <auv_interfaces/msg/error.h>
+#include <auv_interfaces/msg/sensor.h>
+#include <auv_interfaces/msg/velocity_sensor.h>
+#include <auv_interfaces/msg/object_difference.h>
+
+/*
+ * Helper functions to help reconnect
+*/
+#define EXECUTE_EVERY_N_MS(MS, X)  do { \
+    static volatile int64_t init = -1; \
+    if (init == -1) { init = uxr_millis();} \
+    if (uxr_millis() - init > MS) { X; init = uxr_millis();} \
+  } while (0)
+
+enum states {
+  WAITING_AGENT,
+  AGENT_AVAILABLE,
+  AGENT_CONNECTED,
+  AGENT_DISCONNECTED
+} state;
+
+// Declare rcl object
+rclc_support_t support;
+rcl_init_options_t init_options;
+rcl_node_t node;
+rcl_timer_t timer;
+rclc_executor_t executor;
+rcl_allocator_t allocator;
+
+// Declare Publishers
+rcl_publisher_t pub_pwm, pub_error, pub_sensor, pub_set_point, pub_pid, pub_status, pub_boost, pub_velocity_sensor;
+
+// Declare Subscribers
+rcl_subscription_t sub_status, sub_boost, sub_pid, sub_set_point, sub_object_difference;
+
+// Declare Messages
+auv_interfaces__msg__Actuator pwm_msg;
+auv_interfaces__msg__SetPoint set_point_msg;
+auv_interfaces__msg__MultiPID pid_msg;
+auv_interfaces__msg__Error error_msg;
+auv_interfaces__msg__VelocitySensor velocity_msg;
+auv_interfaces__msg__ObjectDifference object_difference_msg;
+auv_interfaces__msg__Sensor sensor_msg;
+std_msgs__msg__String status_msg;
+std_msgs__msg__Float32 boost_msg;
 
 // Sensor and control variables
 float yaw = 0.0, last_yaw = 0.0, delta_yaw = 0.0;
@@ -70,14 +103,14 @@ bool is_stable_roll = true, is_stable_pitch = true, is_stable_yaw = true, is_sta
 float thrust_dpr[4], thrust_ssy[4];
 float t_yaw = 0, camera_yaw = 0;
 int yawIndex = 0;
-float min_pwm = 1000.0, max_pwm = 2000.0;
+float min_pwm = 1470.0, max_pwm = 1530.0;
 float constrain_boost = 150.0;
 float pwm_thruster[10] = {1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0};
 // bool control_loop_flag = false;
 
 // PID coefficients
 float kp_yaw = 0, ki_yaw = 0, kd_yaw = 0;
-float kp_pitch = 0, ki_pitch = 0, kd_pitch = 0;
+float kp_pitch = 1000, ki_pitch = 0, kd_pitch = 0;
 float kp_roll = 0, ki_roll = 0, kd_roll = 0;
 float kp_depth = 0, ki_depth = 0, kd_depth = 0;
 float kp_camera = 0, ki_camera = 0, kd_camera = 0;
@@ -191,9 +224,150 @@ bool generate_is_stable(float thresh, float error) {
   return (-thresh <= error) && (error <= thresh);
 }
 
-// ============== SETUP & INITIALIZATION ==============
+// Callback functions
+bool receive_status = false;  
+void status_callback(const void *msgin) {
+  const std_msgs__msg__String *status_msg = (const std_msgs__msg__String *)msgin;
+  
+  // receive message
+  String received_status = String(status_msg->data.data);
+  status = received_status;  // Menyimpan data status yang diterima
+  receive_status = true;
+}
 
-// Control loop now called directly from main loop()
+bool receive_boost = false;
+void boost_callback(const void *msgin) {
+  const std_msgs__msg__Float32 *boost_msg = (const std_msgs__msg__Float32 *)msgin;
+
+  constrain_boost = boost_msg->data;
+  receive_boost = true;
+}
+
+bool receive_set_point = false;
+void set_point_callback(const void *msgin) {
+  const auv_interfaces__msg__SetPoint *set_point_msg = (const auv_interfaces__msg__SetPoint *)msgin;
+
+  set_point_yaw = set_point_msg->yaw;
+  set_point_pitch = set_point_msg->pitch;
+  set_point_roll = set_point_msg->roll;
+  set_point_depth = set_point_msg->depth;
+  receive_set_point = true;
+}
+
+bool recieve_pid = false;
+void pid_callback(const void *msgin) {
+  const auv_interfaces__msg__MultiPID *pid_msg = (const auv_interfaces__msg__MultiPID *)msgin;
+  
+  kp_yaw = pid_msg->pid_yaw.kp;
+  ki_yaw = pid_msg->pid_yaw.ki;
+  kd_yaw = pid_msg->pid_yaw.kd;
+
+  kp_pitch = pid_msg->pid_pitch.kp;
+  ki_pitch = pid_msg->pid_pitch.ki;
+  kd_pitch = pid_msg->pid_pitch.kd;
+
+  kp_roll = pid_msg->pid_roll.kp;
+  ki_roll = pid_msg->pid_roll.ki;
+  kd_roll = pid_msg->pid_roll.kd;
+
+  kp_depth = pid_msg->pid_depth.kp;
+  ki_depth = pid_msg->pid_depth.ki;
+  kd_depth = pid_msg->pid_depth.kd;
+
+  kp_camera = pid_msg->pid_camera.kp;
+  ki_camera = pid_msg->pid_camera.ki;
+  kd_camera = pid_msg->pid_camera.kd;
+
+  recieve_pid = true;
+}
+
+void object_difference_callback(const void *msgin) {
+  const auv_interfaces__msg__ObjectDifference *object_difference_msg = (const auv_interfaces__msg__ObjectDifference *)msgin;
+  
+  class_name = object_difference_msg->object_type.data;
+  camera_error = object_difference_msg->x_difference;
+}
+
+void timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
+  (void) last_call_time;
+  if (timer != NULL)
+  {
+    // timer callback code here
+
+    /*
+       TODO : Publish anything inside here
+
+       For example, we are going to echo back
+       the int16array_sub data to int16array_pub data,
+       so we could see the data reflect each other.
+       And also keep incrementing the int16_pub
+    */
+    run_control_loop();
+
+    if (receive_status)
+    {
+      // Publish
+      rcl_publish(&pub_status, &status_msg, NULL);
+
+      receive_status = false;
+    }
+
+    if (receive_set_point)
+    {
+      set_point_msg.depth = set_point_depth;
+      set_point_msg.roll = set_point_roll;
+      set_point_msg.pitch = set_point_pitch;
+      set_point_msg.yaw = set_point_yaw;
+
+      // publish
+      rcl_publish(&pub_set_point, &set_point_msg, NULL);
+
+      receive_set_point = false;
+    }
+
+    if (receive_boost)
+    {
+      boost_msg.data = constrain_boost;
+
+      // publish
+      rcl_publish(&pub_boost, &boost_msg, NULL);
+
+      receive_boost = false;
+    }
+
+    if (recieve_pid)
+    {
+      pid_msg.pid_yaw.kp = kp_yaw;
+      pid_msg.pid_yaw.ki = ki_yaw;
+      pid_msg.pid_yaw.kd = kd_yaw;
+
+      pid_msg.pid_pitch.kp = kp_pitch;
+      pid_msg.pid_pitch.ki = ki_pitch;
+      pid_msg.pid_pitch.kd = kd_pitch;
+
+      pid_msg.pid_roll.kp = kp_roll;
+      pid_msg.pid_roll.ki = ki_roll;
+      pid_msg.pid_roll.kd = kd_roll;
+
+      pid_msg.pid_depth.kp = kp_depth;
+      pid_msg.pid_depth.ki = ki_depth;
+      pid_msg.pid_depth.kd = kd_depth;
+
+      pid_msg.pid_camera.kp = kp_camera;
+      pid_msg.pid_camera.ki = ki_camera;
+      pid_msg.pid_camera.kd = kd_camera;
+
+      // publish
+      rcl_publish(&pub_pid, &pid_msg, NULL);
+
+      recieve_pid = false;
+    }
+
+    rcl_publish(&pub_pwm, &pwm_msg, NULL);
+    rcl_publish(&pub_error, &error_msg, NULL);
+    rcl_publish(&pub_sensor, &sensor_msg, NULL);
+  }
+}
 
 // Micro-ROS functions
 bool create_entities()
@@ -366,7 +540,7 @@ static void SensorDataUpdata(uint32_t uiReg, uint32_t uiRegNum) {
 static void AutoScanSensor(void) {
   int iRetry;
   for (size_t i = 0; i < sizeof(c_uiBaud) / sizeof(c_uiBaud[0]); i++) {
-    Serial6.begin(c_uiBaud[i]);
+    Serial6.begin(115200);
     Serial6.flush();
     iRetry = 2;
     s_cDataUpdate = 0;
@@ -388,76 +562,77 @@ static void AutoScanSensor(void) {
 }
 
 void setup() {
-  // Serial Communication
+  // Initialize serial communication
   Serial.begin(115200);
-  
-  // Modbus & Sensors
+  set_microros_serial_transports(Serial);
+
+  // Initialize sensor communication
+  // Serial7.begin(115200); // Yaw
   pinMode(DE_RE, OUTPUT);
-  digitalWrite(DE_RE, LOW);
-  
-  Serial7.begin(9600, SERIAL_8N1);
-  nodemod.begin(0x00, Serial7);
+  digitalWrite(DE_RE, LOW); // Start in RX mode
+
+  Serial7.begin(115200, SERIAL_8N1);
+
+  nodemod.begin(0x50, Serial7);
+
   nodemod.preTransmission(preTransmission);
   nodemod.postTransmission(postTransmission);
 
-  Serial6.begin(115200);
+  Serial6.begin(115200); // Pitch & Roll
   WitInit(WIT_PROTOCOL_NORMAL, 0x50);
   WitSerialWriteRegister(SensorUartSend);
   WitRegisterCallBack(SensorDataUpdata);
   WitDelayMsRegister(Delayms);
   AutoScanSensor();
 
-  // Thrusters
   for (int i = 0; i < 10; i++) {
-    thruster[i].attach(pin_thruster[i]);
-    thruster[i].writeMicroseconds(1500);
+    if (!thruster[i].attach(pin_thruster[i])) {
+      Serial.printf("Failed to attach thruster %d\n", i);
+    }
+    thruster[i].writeMicroseconds(1500); // Neutral position
   }
 
-  // Camera
-  camera.attach(17);
-  camera.write(100);
+  // camera initialize servo
+  if (!camera.attach(17)) {
+    Serial.println("Failed to attach camera servo");
+  }
 
-  // Depth Sensor
+  camera.write(100); // Center position
+
+  // Initialize MS5837 depth sensor
   Wire.begin();
   int attempts = 0;
   while (!sensor.init() && attempts < 5) {
-    delay(100);
+    Serial.println("Init failed! Retrying...");
+    delay(1000);
     attempts++;
   }
-  if (attempts < 5) {
+  if (attempts >= 5) {
+    Serial.println("Failed to initialize depth sensor after 5 attempts");
+  } else {
     sensor.setModel(MS5837::MS5837_30BA);
     sensor.setFluidDensity(997);
+    Serial.println("Depth sensor initialized successfully");
   }
 
-  // Initialize hardcoded setpoints and PID values
-  set_point_yaw = SET_POINT_YAW;
-  set_point_pitch = SET_POINT_PITCH;
-  set_point_roll = SET_POINT_ROLL;
-  set_point_depth = SET_POINT_DEPTH;
+  // Initialize messages
+  auv_interfaces__msg__Actuator__init(&pwm_msg);
+  auv_interfaces__msg__SetPoint__init(&set_point_msg);
+  auv_interfaces__msg__MultiPID__init(&pid_msg);
+  auv_interfaces__msg__Error__init(&error_msg);
+  auv_interfaces__msg__ObjectDifference__init(&object_difference_msg);
+  auv_interfaces__msg__Sensor__init(&sensor_msg);
+  std_msgs__msg__String__init(&status_msg);
+  std_msgs__msg__Float32__init(&boost_msg);
 
-  kp_yaw = KP_YAW;
-  ki_yaw = KI_YAW;
-  kd_yaw = KD_YAW;
+  status_msg.data.data = malloc(50);
+  status_msg.data.capacity = 50;
+  status_msg.data.size = 0;
 
-  kp_pitch = KP_PITCH;
-  ki_pitch = KI_PITCH;
-  kd_pitch = KD_PITCH;
-
-  kp_roll = KP_ROLL;
-  ki_roll = KI_ROLL;
-  kd_roll = KD_ROLL;
-
-  kp_depth = KP_DEPTH;
-  ki_depth = KI_DEPTH;
-  kd_depth = KD_DEPTH;
-
-  kp_camera = KP_CAMERA;
-  ki_camera = KI_CAMERA;
-  kd_camera = KD_CAMERA;
-
-  status = "yaw";  // Hardcoded status
-  
-  Serial.println("Setup complete!");
+  // Initialize state
+  state = WAITING_AGENT;
+  Serial.println("Setup completed");
+  // last_time = millis();
 }
 
 void run_control_loop()
@@ -500,16 +675,16 @@ void run_control_loop()
   depth = sensor.depth();
 
   // 4. Sensor data processing
-  delta_depth = abs(last_depth - depth);
-  delta_roll = abs(last_roll - roll);
-  delta_pitch = abs(last_pitch - pitch);
-  delta_yaw = abs(last_yaw - yaw);
+  // delta_depth = abs(last_depth - depth);
+  // delta_roll = abs(last_roll - roll);
+  // delta_pitch = abs(last_pitch - pitch);
+  // delta_yaw = abs(last_yaw - yaw);
 
   // 5. FILTER menggunakan delta (seperti biasa)
-  if (abs(depth) > 10) depth = last_depth;
-  if (delta_depth > 1) depth = last_depth;
-  if (delta_roll > 0.4) roll = last_roll;
-  if (delta_pitch > 0.3) pitch = last_pitch;
+  // if (abs(depth) > 10) depth = last_depth;
+  // if (delta_depth > 1) depth = last_depth;
+  // if (delta_roll > 0.4) roll = last_roll;
+  // if (delta_pitch > 0.3) pitch = last_pitch;
 
   // Calculate errors
   error_yaw = calculate_heading_error(yaw, set_point_yaw);
@@ -760,13 +935,42 @@ void run_control_loop()
   error_msg.camera = float(camera_error);
 
   // Store last sensor values
-  last_depth = depth;
-  last_roll = roll;
-  last_pitch = pitch;
-  last_yaw = yaw;
+  // last_depth = depth;
+  // last_roll = roll;
+  // last_pitch = pitch;
+  // last_yaw = yaw;
 }
 
 void loop() {
-  run_control_loop();
-  delay(10);  // 100Hz
+  switch (state) {
+    case WAITING_AGENT:
+      EXECUTE_EVERY_N_MS(500, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_AVAILABLE : WAITING_AGENT;);
+      break;
+    case AGENT_AVAILABLE:
+      state = (true == create_entities()) ? AGENT_CONNECTED : WAITING_AGENT;
+      if (state == WAITING_AGENT) {
+        destroy_entities();
+      };
+      break;
+    case AGENT_CONNECTED:
+      EXECUTE_EVERY_N_MS(200, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
+      if (state == AGENT_CONNECTED) {
+        Serial.println("Executor running...");
+        rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+      }
+      break;
+    case AGENT_DISCONNECTED:
+      destroy_entities();
+      state = WAITING_AGENT;
+      break;
+    default:
+      break;
+  }
+
+  // if (state == AGENT_CONNECTED) {
+  //   if (control_loop_flag) {
+  //       run_control_loop();
+  //       control_loop_flag = false;
+  //   }
+  // }
 }
