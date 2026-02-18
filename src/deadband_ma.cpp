@@ -91,6 +91,14 @@
 // std_msgs__msg__String status_msg;
 // std_msgs__msg__Float32 boost_msg;
 
+
+// // Deadband Thruster
+// const int PWM_REVERSE_START = 1476;
+// const int PWM_FORWARD_START = 1520;
+// const int PWM_NEUTRAL = 1500;
+// const int PWM_MIN = 1250;
+// const int PWM_MAX = 1750;
+
 // // Sensor and control variables
 // float yaw = 0.0, last_yaw = 0.0, delta_yaw = 0.0;
 // float pitch = 0.0, last_pitch = 0.0, delta_pitch = 0.0;
@@ -107,6 +115,17 @@
 // float constrain_boost = 150.0;
 // float pwm_thruster[10] = {1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0};
 // // bool control_loop_flag = false;
+
+// // Moving average
+// float yaw_rate = 0.0;
+// float yaw_rate_filtered = 0.0;
+// unsigned long last_compass_time = 0;
+
+// // Moving average buffer
+// #define YAW_MA_WINDOW 20
+// float yaw_rate_buffer[YAW_MA_WINDOW] = {0};
+// int yaw_rate_idx = 0;
+// bool yaw_rate_full = false;
 
 // // PID coefficients
 // float kp_yaw = 0, ki_yaw = 0, kd_yaw = 0;
@@ -218,6 +237,45 @@
 //   if (error > 180) error -= 360;
 //   else if (error < -180) error += 360;
 //   return error;
+// }
+
+// float updateYawRateMA(float new_rate)
+// {
+//   yaw_rate_buffer[yaw_rate_idx] = new_rate;
+//   yaw_rate_idx++;
+
+//   if (yaw_rate_idx >= YAW_MA_WINDOW) {
+//     yaw_rate_idx = 0;
+//     yaw_rate_full = true;
+//   }
+
+//   int count = yaw_rate_full ? YAW_MA_WINDOW : yaw_rate_idx;
+//   float sum = 0.0;
+
+//   for (int i = 0; i < count; i++)
+//     sum += yaw_rate_buffer[i];
+
+//   return sum / count;
+// }
+
+// int applyDeadband(float control_scaled)
+// {
+//   int pwm;
+
+//   if (control_scaled > 0)
+//   {
+//     pwm = PWM_FORWARD_START + control_scaled;
+//   }
+//   else if (control_scaled < 0)
+//   {
+//     pwm = PWM_REVERSE_START + control_scaled;
+//   }
+//   else
+//   {
+//     pwm = PWM_NEUTRAL;
+//   }
+
+//   return constrain(pwm, PWM_MIN, PWM_MAX);
 // }
 
 // bool generate_is_stable(float thresh, float error) {
@@ -659,14 +717,36 @@
 //     int16_t raw = nodemod.getResponseBuffer(0);
 
 //     // RAW → YAW (derajat)
-//     yaw = raw / 10.0f; // 0.1° per LSB
-//     yaw = -yaw;        // balik arah kalau perlu
+//     last_yaw = yaw;
 
-//     // Normalisasi 0–360
+//     yaw = raw / 10.0f;
+//     yaw = -yaw;
+
 //     if (yaw < 0) yaw += 360.0f;
 //     if (yaw >= 360.0) yaw -= 360.0f;
 
-//     Serial.print("Compass: "); Serial.print(yaw, 2);
+//     unsigned long now = millis();
+//     float dt = (now - last_compass_time) / 1000.0f;
+
+//     if (dt > 0.001 && last_compass_time > 0)
+//     {
+//     float delta = calculate_heading_error(last_yaw, yaw);
+//     yaw_rate = delta / dt;
+
+//     // reject spike
+//     if (fabs(yaw_rate) < 400.0f)
+//     {
+//         float ma = updateYawRateMA(yaw_rate);
+
+//         // low pass filter tambahan
+//         const float alpha = 0.3f;
+//         yaw_rate_filtered =
+//             alpha * ma +
+//             (1.0f - alpha) * yaw_rate_filtered;
+//     }
+//     }
+
+//     last_compass_time = now;
 //   }
 
 //   // 3. BACA DEPTH
@@ -841,16 +921,40 @@
 //   }
 
 //   // Calculate PWM values
-//   pwm_thruster[0] = constrain(1500 - (thrust_ssy[1] * 500.0), min_pwm, max_pwm);
-//   pwm_thruster[1] = constrain(1500 - (thrust_ssy[0] * 500.0), min_pwm, max_pwm);
-//   pwm_thruster[2] = constrain(1500 - (thrust_ssy[3] * 500.0), min_pwm, max_pwm);
-//   pwm_thruster[3] = constrain(1500 - (thrust_ssy[2] * 500.0), min_pwm, max_pwm);
-//   pwm_thruster[4] = constrain(1500 - thrust_dpr[2], min_pwm, max_pwm); // +
-//   pwm_thruster[5] = constrain(1500 - thrust_dpr[1], min_pwm, max_pwm);
-//   pwm_thruster[6] = constrain(1500 + thrust_dpr[0], min_pwm, max_pwm);
-//   pwm_thruster[7] = constrain(1500 + thrust_dpr[3], min_pwm, max_pwm); // -
-//   pwm_thruster[8] = constrain(1500 - (thrust_ssy[1] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
-//   pwm_thruster[9] = constrain(1500 - (thrust_ssy[0] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
+// //   pwm_thruster[0] = constrain(1500 - (thrust_ssy[1] * 500.0), min_pwm, max_pwm);
+// //   pwm_thruster[1] = constrain(1500 - (thrust_ssy[0] * 500.0), min_pwm, max_pwm);
+// //   pwm_thruster[2] = constrain(1500 - (thrust_ssy[3] * 500.0), min_pwm, max_pwm);
+// //   pwm_thruster[3] = constrain(1500 - (thrust_ssy[2] * 500.0), min_pwm, max_pwm);
+// //   pwm_thruster[4] = constrain(1500 - thrust_dpr[2], min_pwm, max_pwm); // +
+// //   pwm_thruster[5] = constrain(1500 - thrust_dpr[1], min_pwm, max_pwm);
+// //   pwm_thruster[6] = constrain(1500 + thrust_dpr[0], min_pwm, max_pwm);
+// //   pwm_thruster[7] = constrain(1500 + thrust_dpr[3], min_pwm, max_pwm); // -
+// //   pwm_thruster[8] = constrain(1500 - (thrust_ssy[1] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
+// //   pwm_thruster[9] = constrain(1500 - (thrust_ssy[0] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
+
+//   float control0 = -(thrust_ssy[1] * 500.0);
+//   pwm_thruster[0] = applyDeadband(control0);
+
+//   float control1 = -(thrust_ssy[0] * 500.0);
+//   pwm_thruster[1] = applyDeadband(control1);
+
+//   float control2 = -(thrust_ssy[3] * 500.0);
+//   pwm_thruster[2] = applyDeadband(control2);
+
+//   float control3 = -(thrust_ssy[2] * 500.0);
+//   pwm_thruster[3] = applyDeadband(control3);
+
+//   float control4 = -thrust_dpr[2];
+//   pwm_thruster[4] = applyDeadband(control4);
+
+//   float control5 = -thrust_dpr[1];
+//   pwm_thruster[5] = applyDeadband(control5);
+
+//   float control6 = -thrust_dpr[0];
+//   pwm_thruster[6] = applyDeadband(control6);
+
+//   float control7 = -thrust_dpr[3];
+//   pwm_thruster[7] = applyDeadband(control7);
 
 //   // Special case for all_boost status
 //   if (status == "all_boost")

@@ -91,6 +91,15 @@ auv_interfaces__msg__Sensor sensor_msg;
 std_msgs__msg__String status_msg;
 std_msgs__msg__Float32 boost_msg;
 
+
+// Deadband Thruster
+const int PWM_REVERSE_START = 1476;
+const int PWM_FORWARD_START = 1520;
+const int PWM_NEUTRAL = 1500;
+const int PWM_MIN = 1250;
+const int PWM_MAX = 1750;
+const float LOOP_DT = 0.01; // 100 Hz
+
 // Sensor and control variables
 float yaw = 0.0, last_yaw = 0.0, delta_yaw = 0.0;
 float pitch = 0.0, last_pitch = 0.0, delta_pitch = 0.0;
@@ -103,10 +112,21 @@ bool is_stable_roll = true, is_stable_pitch = true, is_stable_yaw = true, is_sta
 float thrust_dpr[4], thrust_ssy[4];
 float t_yaw = 0, camera_yaw = 0;
 int yawIndex = 0;
-float min_pwm = 1470.0, max_pwm = 1530.0;
+float min_pwm = 1250.0, max_pwm = 1750.0;
 float constrain_boost = 150.0;
 float pwm_thruster[10] = {1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0};
 // bool control_loop_flag = false;
+
+// Moving average
+float yaw_rate = 0.0;
+float yaw_rate_filtered = 0.0;
+unsigned long last_compass_time = 0;
+
+// Moving average buffer
+#define YAW_MA_WINDOW 50
+float yaw_rate_buffer[YAW_MA_WINDOW] = {0};
+int yaw_rate_idx = 0;
+bool yaw_rate_full = false;
 
 // PID coefficients
 float kp_yaw = 0, ki_yaw = 0, kd_yaw = 0;
@@ -136,15 +156,21 @@ class PID {
       : kp(kp), ki(ki), kd(kd), integral(0), last_error(0) {}
 
     float calculate(float error) {
-      float d_error = (error - last_error) / 10;
+      // Integral
+      integral += error * LOOP_DT;
+      // integral = constrain(integral, -10.0f, 10.0f);
 
-      float proportional = kp * error;
-      integral += ki * error;
-      float derivative = kd * d_error;
+      // Batasi integral (anti windup)
+      integral = constrain(integral, -10.0f, 10.0f);
 
+      float derivative = (error - last_error)/ 10;
       last_error = error;
 
-      return proportional + integral + derivative;
+      float p = kp * error;
+      float i = ki * integral;
+      float d = kd * derivative;
+
+      return p + i + d;
     }
 
   private:
@@ -213,11 +239,50 @@ DPRController dprController(0.5, 0.5);
 
 // Helper functions
 float calculate_heading_error(float current, float target) {
-  target = fmod(target, 360);
+  // target = fmod(target, 360);
   float error = target - current;
   if (error > 180) error -= 360;
   else if (error < -180) error += 360;
   return error;
+}
+
+float updateYawRateMA(float new_rate)
+{
+  yaw_rate_buffer[yaw_rate_idx] = new_rate;
+  yaw_rate_idx++;
+
+  if (yaw_rate_idx >= YAW_MA_WINDOW) {
+    yaw_rate_idx = 0;
+    yaw_rate_full = true;
+  }
+
+  int count = yaw_rate_full ? YAW_MA_WINDOW : yaw_rate_idx;
+  float sum = 0.0;
+
+  for (int i = 0; i < count; i++)
+    sum += yaw_rate_buffer[i];
+
+  return sum / count;
+}
+
+int applyDeadband(float control_scaled)
+{
+  int pwm;
+
+  if (control_scaled > 0)
+  {
+    pwm = PWM_FORWARD_START + control_scaled;
+  }
+  else if (control_scaled < 0)
+  {
+    pwm = PWM_REVERSE_START + control_scaled;
+  }
+  else
+  {
+    pwm = PWM_NEUTRAL;
+  }
+
+  return constrain(pwm, PWM_MIN, PWM_MAX);
 }
 
 bool generate_is_stable(float thresh, float error) {
@@ -466,7 +531,7 @@ bool create_entities()
    * 20ms : 50Hz
    * 10ms : 100Hz
    */
-  const unsigned int timer_timeout = 50;
+  const unsigned int timer_timeout = 10;
   rclc_timer_init_default(&timer, &support, RCL_MS_TO_NS(timer_timeout), timer_callback);
 
   /*
@@ -659,14 +724,36 @@ void run_control_loop()
     int16_t raw = nodemod.getResponseBuffer(0);
 
     // RAW → YAW (derajat)
-    yaw = raw / 10.0f; // 0.1° per LSB
-    yaw = -yaw;        // balik arah kalau perlu
+    last_yaw = yaw;
 
-    // Normalisasi 0–360
+    yaw = raw / 10.0f;
+    yaw = -yaw;
+
     if (yaw < 0) yaw += 360.0f;
     if (yaw >= 360.0) yaw -= 360.0f;
 
-    Serial.print("Compass: "); Serial.print(yaw, 2);
+    unsigned long now = millis();
+    float dt = (now - last_compass_time) / 1000.0f;
+
+    if (dt > 0.001 && last_compass_time > 0)
+    {
+    float delta = calculate_heading_error(last_yaw, yaw);
+    yaw_rate = delta / dt;
+
+    // reject spike
+    if (fabs(yaw_rate) < 400.0f)
+    {
+        float ma = updateYawRateMA(yaw_rate);
+
+        // low pass filter tambahan
+        const float alpha = 0.3f;
+        yaw_rate_filtered =
+            alpha * ma +
+            (1.0f - alpha) * yaw_rate_filtered;
+    }
+    }
+
+    last_compass_time = now;
   }
 
   // 3. BACA DEPTH
@@ -712,7 +799,16 @@ void run_control_loop()
   PID pid_camera(kp_camera, ki_camera, kd_camera);
 
   // Calculate control outputs
-  t_yaw = -3 + ((pid_yaw.calculate(error_yaw) - (-500)) / (500 - (-500))) * (3 - (-3));
+  // t_yaw = -3 + ((pid_yaw.calculate(error_yaw) - (-500)) / (500 - (-500))) * (3 - (-3));
+  // float u = pid_yaw.calculate(error_yaw);
+  // u = constrain(u, -3, 3);
+  // t_yaw = u;
+  float u = pid_yaw.calculate(error_yaw);
+
+  // scaling supaya range cocok ke -3..3
+  float t_yaw = u * 0.01f;
+
+  // t_yaw = constrain(t_yaw, -3.0f, 3.0f);
   camera_yaw = -3 + ((pid_camera.calculate(camera_error) - (-500)) / (500 - (-500))) * (3 - (-3));
 
   // Serial.print("run_control_loop - status: ");
@@ -841,16 +937,40 @@ void run_control_loop()
   }
 
   // Calculate PWM values
-  pwm_thruster[0] = constrain(1500 - (thrust_ssy[1] * 500.0), min_pwm, max_pwm);
-  pwm_thruster[1] = constrain(1500 - (thrust_ssy[0] * 500.0), min_pwm, max_pwm);
-  pwm_thruster[2] = constrain(1500 - (thrust_ssy[3] * 500.0), min_pwm, max_pwm);
-  pwm_thruster[3] = constrain(1500 - (thrust_ssy[2] * 500.0), min_pwm, max_pwm);
-  pwm_thruster[4] = constrain(1500 - thrust_dpr[2], min_pwm, max_pwm); // +
-  pwm_thruster[5] = constrain(1500 - thrust_dpr[1], min_pwm, max_pwm);
-  pwm_thruster[6] = constrain(1500 + thrust_dpr[0], min_pwm, max_pwm);
-  pwm_thruster[7] = constrain(1500 + thrust_dpr[3], min_pwm, max_pwm); // -
-  pwm_thruster[8] = constrain(1500 - (thrust_ssy[1] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
-  pwm_thruster[9] = constrain(1500 - (thrust_ssy[0] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
+  //   pwm_thruster[0] = constrain(1500 - (thrust_ssy[1] * 500.0), min_pwm, max_pwm);
+  //   pwm_thruster[1] = constrain(1500 - (thrust_ssy[0] * 500.0), min_pwm, max_pwm);
+  //   pwm_thruster[2] = constrain(1500 - (thrust_ssy[3] * 500.0), min_pwm, max_pwm);
+  //   pwm_thruster[3] = constrain(1500 - (thrust_ssy[2] * 500.0), min_pwm, max_pwm);
+  //   pwm_thruster[4] = constrain(1500 - thrust_dpr[2], min_pwm, max_pwm); // +
+  //   pwm_thruster[5] = constrain(1500 - thrust_dpr[1], min_pwm, max_pwm);
+  //   pwm_thruster[6] = constrain(1500 + thrust_dpr[0], min_pwm, max_pwm);
+  //   pwm_thruster[7] = constrain(1500 + thrust_dpr[3], min_pwm, max_pwm); // -
+  //   pwm_thruster[8] = constrain(1500 - (thrust_ssy[1] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
+  //   pwm_thruster[9] = constrain(1500 - (thrust_ssy[0] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
+
+  float control0 = -(thrust_ssy[1] * 500.0);
+  pwm_thruster[0] = applyDeadband(control0);
+
+  float control1 = -(thrust_ssy[0] * 500.0);
+  pwm_thruster[1] = applyDeadband(control1);
+
+  float control2 = -(thrust_ssy[3] * 500.0);
+  pwm_thruster[2] = applyDeadband(control2);
+
+  float control3 = -(thrust_ssy[2] * 500.0);
+  pwm_thruster[3] = applyDeadband(control3);
+
+  float control4 = -thrust_dpr[2];
+  pwm_thruster[4] = applyDeadband(control4);
+
+  float control5 = -thrust_dpr[1];
+  pwm_thruster[5] = applyDeadband(control5);
+
+  float control6 = thrust_dpr[0];
+  pwm_thruster[6] = applyDeadband(control6);
+
+  float control7 = thrust_dpr[3];
+  pwm_thruster[7] = applyDeadband(control7);
 
   // Special case for all_boost status
   if (status == "all_boost")
@@ -956,7 +1076,7 @@ void loop() {
       EXECUTE_EVERY_N_MS(200, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
       if (state == AGENT_CONNECTED) {
         Serial.println("Executor running...");
-        rclc_executor_spin_some(&executor, RCL_MS_TO_NS(100));
+        rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
       }
       break;
     case AGENT_DISCONNECTED:
