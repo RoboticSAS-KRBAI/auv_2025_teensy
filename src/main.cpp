@@ -92,9 +92,47 @@ std_msgs__msg__String status_msg;
 std_msgs__msg__Float32 boost_msg;
 
 
-// Deadband Thruster
-const int PWM_REVERSE_START = 1476;
-const int PWM_FORWARD_START = 1520;
+// =====================================================
+// DEADBAND PER-THRUSTER (Hasil pengukuran lab)
+// =====================================================
+// Index:       0     1     2     3     4     5     6     7     8     9
+// Nama:       T1    T2    T3    T4    T5    T6    T7    T8    T9   T10
+// Fungsi:    SSY   SSY   SSY   SSY   DPR   DPR   DPR   DPR  Boost Boost
+//
+// Forward = PWM minimal agar thruster mulai berputar ke depan (CW)
+// Reverse = PWM maksimal agar thruster mulai berputar ke belakang (CCW)
+//
+// Thruster 1 (idx 0): belum diukur → pakai nilai aman (terlebar)
+// Thruster 5 (idx 4): diukur 1476 tapi tidak stabil, pakai 1467 agar nyala terus
+// Thruster 9-10 (idx 8-9): boost, belum diukur → pakai nilai aman
+// =====================================================
+
+const int THRUSTER_FORWARD_START[10] = {
+  1527,  // T1  (idx 0) — belum diukur, pakai nilai tertinggi (aman) //1521
+  1527,  // T2  (idx 1) — diukur                                     //1518
+  1528,  // T3  (idx 2) — diukur                                     //1518
+  1528,  // T4  (idx 3) — diukur                                     //1519
+  1528,  // T5  (idx 4) — diukur                                     //1519
+  1528,  // T6  (idx 5) — diukur                                     //1519
+  1528,  // T7  (idx 6) — diukur                                     //1521
+  1528,  // T8  (idx 7) — diukur                                     //1519
+  1521,  // T9  (idx 8) — belum diukur, pakai nilai tertinggi (aman)  //ga pake thruster boost
+  1521   // T10 (idx 9) — belum diukur, pakai nilai tertinggi (aman)  //ga pake thruster boost
+};
+
+const int THRUSTER_REVERSE_START[10] = {
+  1467,  // T1  (idx 0) — belum diukur, pakai nilai terendah (aman) //1467
+  1467,  // T2  (idx 1) — diukur                                    //1476
+  1468,  // T3  (idx 2) — diukur                                    //1477
+  1468,  // T4  (idx 3) — diukur                                    //1477
+  1467,  // T5  (idx 4) — diukur 1476, TAPI tidak stabil! Pakai 1467 agar nyala terus
+  1468,  // T6  (idx 5) — diukur                                    //1477
+  1470,  // T7  (idx 6) — diukur                                    //1479
+  1467,  // T8  (idx 7) — diukur                                    //1476
+  1467,  // T9  (idx 8) — belum diukur, pakai nilai terendah (aman)  //ga pake thruster boost
+  1467   // T10 (idx 9) — belum diukur, pakai nilai terendah (aman)  //ga pake thruster boost
+};
+
 const int PWM_NEUTRAL = 1500;
 const int PWM_MIN = 1250;
 const int PWM_MAX = 1750;
@@ -114,7 +152,6 @@ float t_yaw = 0, camera_yaw = 0;
 int yawIndex = 0;
 float constrain_boost = 150.0;
 float pwm_thruster[10] = {1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0};
-// bool control_loop_flag = false;
 
 // Moving average
 float yaw_rate = 0.0;
@@ -129,7 +166,7 @@ bool yaw_rate_full = false;
 
 // PID coefficients
 float kp_yaw = 0, ki_yaw = 0, kd_yaw = 0;
-float kp_pitch = 0, ki_pitch = 0, kd_pitch = 0;
+float kp_pitch = 1000, ki_pitch = 0, kd_pitch = 0;
 float kp_roll = 0, ki_roll = 0, kd_roll = 0;
 float kp_depth = 0, ki_depth = 0, kd_depth = 0;
 float kp_camera = 0, ki_camera = 0, kd_camera = 0;
@@ -187,7 +224,6 @@ class SSYController {
   public:
     float d;
 
-    // SSYController(float distance) : d(distance) {}
     SSYController(float distance) {
       d = distance;
     }
@@ -249,7 +285,6 @@ PID pid_camera(0, 0, 0);
 
 // Helper functions
 float calculate_heading_error(float current, float target) {
-  // target = fmod(target, 360);
   float error = target - current;
   if (error > 180) error -= 360;
   else if (error < -180) error += 360;
@@ -275,17 +310,27 @@ float updateYawRateMA(float new_rate)
   return sum / count;
 }
 
-int applyDeadband(float control_scaled)
+// =====================================================
+// DEADBAND PER-THRUSTER FUNCTION
+// =====================================================
+// Menerima index thruster (0-9) dan control value
+// Menghitung PWM dengan deadband spesifik thruster tsb
+// =====================================================
+int applyDeadband(int thruster_idx, float control_scaled)
 {
   int pwm;
 
+  // Ambil deadband khusus thruster ini
+  int fwd = THRUSTER_FORWARD_START[thruster_idx];
+  int rev = THRUSTER_REVERSE_START[thruster_idx];
+
   if (control_scaled > 0)
   {
-    pwm = PWM_FORWARD_START + control_scaled;
+    pwm = fwd + (int)control_scaled;  // maju: mulai dari batas forward
   }
   else if (control_scaled < 0)
   {
-    pwm = PWM_REVERSE_START + control_scaled;
+    pwm = rev + (int)control_scaled;  // mundur: mulai dari batas reverse
   }
   else
   {
@@ -306,7 +351,7 @@ void status_callback(const void *msgin) {
   
   // receive message
   String received_status = String(status_msg->data.data);
-  status = received_status;  // Menyimpan data status yang diterima
+  status = received_status;
   receive_status = true;
 }
 
@@ -367,23 +412,11 @@ void timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
   (void) last_call_time;
   if (timer != NULL)
   {
-    // timer callback code here
-
-    /*
-       TODO : Publish anything inside here
-
-       For example, we are going to echo back
-       the int16array_sub data to int16array_pub data,
-       so we could see the data reflect each other.
-       And also keep incrementing the int16_pub
-    */
     run_control_loop();
 
     if (receive_status)
     {
-      // Publish
       rcl_publish(&pub_status, &status_msg, NULL);
-
       receive_status = false;
     }
 
@@ -394,19 +427,14 @@ void timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
       set_point_msg.pitch = set_point_pitch;
       set_point_msg.yaw = set_point_yaw;
 
-      // publish
       rcl_publish(&pub_set_point, &set_point_msg, NULL);
-
       receive_set_point = false;
     }
 
     if (receive_boost)
     {
       boost_msg.data = constrain_boost;
-
-      // publish
       rcl_publish(&pub_boost, &boost_msg, NULL);
-
       receive_boost = false;
     }
 
@@ -432,9 +460,7 @@ void timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
       pid_msg.pid_camera.ki = ki_camera;
       pid_msg.pid_camera.kd = kd_camera;
 
-      // publish
       rcl_publish(&pub_pid, &pid_msg, NULL);
-
       recieve_pid = false;
     }
 
@@ -450,8 +476,6 @@ bool create_entities()
   const char *node_name = "teensy_node";
   const char *ns = "";
   const int domain_id = 0;
-
-  // Initialize node
 
   allocator = rcl_get_default_allocator();
   init_options = rcl_get_zero_initialized_init_options();
@@ -534,24 +558,9 @@ bool create_entities()
       ROSIDL_GET_MSG_TYPE_SUPPORT(auv_interfaces, msg, ObjectDifference),
       "object_difference", &rmw_qos_profile_default);
 
-  /*
-   * Init timer_callback
-   * TODO : change timer_timeout
-   * 50ms : 20Hz
-   * 20ms : 50Hz
-   * 10ms : 100Hz
-   */
   const unsigned int timer_timeout = 10;
   rclc_timer_init_default(&timer, &support, RCL_MS_TO_NS(timer_timeout), timer_callback);
 
-  /*
-   * Init Executor
-   * TODO : make sure the num_handles is correct
-   * num_handles = total_of_subscriber + timer
-   * publisher is not counted
-   *
-   * TODO : make sure the name of sub msg and callback are correct
-   */
   unsigned int num_handles = 6;
   executor = rclc_executor_get_zero_initialized_executor();
   rclc_executor_init(&executor, &support.context, num_handles, &allocator);
@@ -569,14 +578,12 @@ void destroy_entities() {
   rmw_context_t * rmw_context = rcl_context_get_rmw_context(&support.context);
   (void) rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
 
-  // Clean up all the created objects
   rcl_timer_fini(&timer);
   rclc_executor_fini(&executor);
   rcl_init_options_fini(&init_options);
   rcl_node_fini(&node);
   rclc_support_fini(&support);
 
-  // Destroy publishers
   rcl_publisher_fini(&pub_pwm, &node);
   rcl_publisher_fini(&pub_error, &node);
   rcl_publisher_fini(&pub_sensor, &node);
@@ -585,7 +592,6 @@ void destroy_entities() {
   rcl_publisher_fini(&pub_status, &node);
   rcl_publisher_fini(&pub_boost, &node);
 
-  // Destroy subscribers
   rcl_subscription_fini(&sub_status, &node);
   rcl_subscription_fini(&sub_boost, &node);
   rcl_subscription_fini(&sub_pid, &node);
@@ -642,9 +648,8 @@ void setup() {
   set_microros_serial_transports(Serial);
 
   // Initialize sensor communication
-  // Serial7.begin(115200); // Yaw
   pinMode(DE_RE, OUTPUT);
-  digitalWrite(DE_RE, LOW); // Start in RX mode
+  digitalWrite(DE_RE, LOW);
 
   Serial7.begin(115200, SERIAL_8N1);
 
@@ -664,7 +669,7 @@ void setup() {
     if (!thruster[i].attach(pin_thruster[i])) {
       Serial.printf("Failed to attach thruster %d\n", i);
     }
-    thruster[i].writeMicroseconds(1500); // Neutral position
+    thruster[i].writeMicroseconds(1500);
   }
 
   // camera initialize servo
@@ -672,7 +677,7 @@ void setup() {
     Serial.println("Failed to attach camera servo");
   }
 
-  camera.write(100); // Center position
+  camera.write(100);
 
   // Initialize MS5837 depth sensor
   Wire.begin();
@@ -707,7 +712,6 @@ void setup() {
   // Initialize state
   state = WAITING_AGENT;
   Serial.println("Setup completed");
-  // last_time = millis();
 }
 
 void run_control_loop()
@@ -767,21 +771,8 @@ void run_control_loop()
   }
 
   // 3. BACA DEPTH
-  // Update depth from sensor
   sensor.read();
   depth = sensor.depth();
-
-  // 4. Sensor data processing
-  // delta_depth = abs(last_depth - depth);
-  // delta_roll = abs(last_roll - roll);
-  // delta_pitch = abs(last_pitch - pitch);
-  // delta_yaw = abs(last_yaw - yaw);
-
-  // 5. FILTER menggunakan delta (seperti biasa)
-  // if (abs(depth) > 10) depth = last_depth;
-  // if (delta_depth > 1) depth = last_depth;
-  // if (delta_roll > 0.4) roll = last_roll;
-  // if (delta_pitch > 0.3) pitch = last_pitch;
 
   // Calculate errors
   error_yaw = calculate_heading_error(yaw, set_point_yaw);
@@ -793,7 +784,7 @@ void run_control_loop()
   is_stable_roll = generate_is_stable(0, error_roll);
   is_stable_pitch = generate_is_stable(0, error_pitch);
   is_stable_yaw = generate_is_stable(0, error_yaw);
-  is_stable_depth = generate_is_stable(0.05, error_depth);
+  is_stable_depth = generate_is_stable(0, error_depth);
 
   // Zero error if stable
   error_roll = is_stable_roll ? 0 : error_roll;
@@ -809,31 +800,18 @@ void run_control_loop()
   pid_camera.updateGains(kp_camera, ki_camera, kd_camera);
 
   // Calculate control outputs
-  // t_yaw = -3 + ((pid_yaw.calculate(error_yaw) - (-500)) / (500 - (-500))) * (3 - (-3));
-  // float u = pid_yaw.calculate(error_yaw);
-  // u = constrain(u, -3, 3);
-  // t_yaw = u;
   float u = pid_yaw.calculate(error_yaw);
 
   // scaling supaya range cocok ke -3..3
   float t_yaw = u * 0.01f;
 
-  // t_yaw = constrain(t_yaw, -3.0f, 3.0f);
   camera_yaw = -3 + ((pid_camera.calculate(camera_error) - (-500)) / (500 - (-500))) * (3 - (-3));
-
-  // Serial.print("run_control_loop - status: ");
-  // Serial.println(status);
-  bool yaw_locked = false;
-  if (fabs(error_yaw) < 2.0)
-  {
-    yaw_locked = true;
-  }
 
   // Control logic based on status
   if (status == "stop")
   {
     ssyController.control(0, 0, 0, thrust_ssy);
-    dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(0), thrust_dpr);
+    dprController.control(0, 0, 0, thrust_dpr);
   }
   else if (status == "all")
   {
@@ -946,41 +924,24 @@ void run_control_loop()
     dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
   }
 
-  // Calculate PWM values
-  //   pwm_thruster[0] = constrain(1500 - (thrust_ssy[1] * 500.0), min_pwm, max_pwm);
-  //   pwm_thruster[1] = constrain(1500 - (thrust_ssy[0] * 500.0), min_pwm, max_pwm);
-  //   pwm_thruster[2] = constrain(1500 - (thrust_ssy[3] * 500.0), min_pwm, max_pwm);
-  //   pwm_thruster[3] = constrain(1500 - (thrust_ssy[2] * 500.0), min_pwm, max_pwm);
-  //   pwm_thruster[4] = constrain(1500 - thrust_dpr[2], min_pwm, max_pwm); // +
-  //   pwm_thruster[5] = constrain(1500 - thrust_dpr[1], min_pwm, max_pwm);
-  //   pwm_thruster[6] = constrain(1500 + thrust_dpr[0], min_pwm, max_pwm);
-  //   pwm_thruster[7] = constrain(1500 + thrust_dpr[3], min_pwm, max_pwm); // -
-  //   pwm_thruster[8] = constrain(1500 - (thrust_ssy[1] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
-  //   pwm_thruster[9] = constrain(1500 - (thrust_ssy[0] * constrain_boost), (1500.0 - constrain_boost), (1500.0 + constrain_boost));
+  // =====================================================
+  // CALCULATE PWM WITH PER-THRUSTER DEADBAND
+  // =====================================================
+  // SSY thrusters (idx 0-3)
+  pwm_thruster[0] = applyDeadband(0, -(thrust_ssy[1] * 500.0));
+  pwm_thruster[1] = applyDeadband(1, -(thrust_ssy[0] * 500.0));
+  pwm_thruster[2] = applyDeadband(2, -(thrust_ssy[3] * 500.0));
+  pwm_thruster[3] = applyDeadband(3, -(thrust_ssy[2] * 500.0));
 
-  float control0 = -(thrust_ssy[1] * 500.0);
-  pwm_thruster[0] = applyDeadband(control0);
+  // DPR thrusters (idx 4-7)
+  pwm_thruster[4] = applyDeadband(4, -thrust_dpr[2]);
+  pwm_thruster[5] = applyDeadband(5, -thrust_dpr[1]);
+  pwm_thruster[6] = applyDeadband(6,  thrust_dpr[0]);
+  pwm_thruster[7] = applyDeadband(7,  thrust_dpr[3]);
 
-  float control1 = -(thrust_ssy[0] * 500.0);
-  pwm_thruster[1] = applyDeadband(control1);
-
-  float control2 = -(thrust_ssy[3] * 500.0);
-  pwm_thruster[2] = applyDeadband(control2);
-
-  float control3 = -(thrust_ssy[2] * 500.0);
-  pwm_thruster[3] = applyDeadband(control3);
-
-  float control4 = -thrust_dpr[2];
-  pwm_thruster[4] = applyDeadband(control4);
-
-  float control5 = -thrust_dpr[1];
-  pwm_thruster[5] = applyDeadband(control5);
-
-  float control6 = thrust_dpr[0];
-  pwm_thruster[6] = applyDeadband(control6);
-
-  float control7 = thrust_dpr[3];
-  pwm_thruster[7] = applyDeadband(control7);
+  // Boost thrusters (idx 8-9) — tetap pakai deadband per-thruster
+  // pwm_thruster[8] = applyDeadband(8, -(thrust_ssy[1] * constrain_boost));
+  // pwm_thruster[9] = applyDeadband(9, -(thrust_ssy[0] * constrain_boost));
 
   // Special case for all_boost status
   if (status == "all_boost")
@@ -1063,12 +1024,6 @@ void run_control_loop()
   error_msg.pitch = error_pitch;
   error_msg.yaw = error_yaw;
   error_msg.camera = float(camera_error);
-
-  // Store last sensor values
-  // last_depth = depth;
-  // last_roll = roll;
-  // last_pitch = pitch;
-  // last_yaw = yaw;
 }
 
 void loop() {
@@ -1096,11 +1051,4 @@ void loop() {
     default:
       break;
   }
-
-  // if (state == AGENT_CONNECTED) {
-  //   if (control_loop_flag) {
-  //       run_control_loop();
-  //       control_loop_flag = false;
-  //   }
-  // }
 }
