@@ -134,8 +134,8 @@ const int THRUSTER_REVERSE_START[10] = {
 };
 
 const int PWM_NEUTRAL = 1500;
-const int PWM_MIN = 1250;
-const int PWM_MAX = 1750;
+const int PWM_MIN = 1250; //1250
+const int PWM_MAX = 1750; //1750
 const float LOOP_DT = 0.01; // 100 Hz
 
 // Sensor and control variables
@@ -157,6 +157,15 @@ float pwm_thruster[10] = {1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0
 float yaw_rate = 0.0;
 float yaw_rate_filtered = 0.0;
 unsigned long last_compass_time = 0;
+
+// ==========================
+// KALMAN FILTER YAW
+// ==========================
+float kf_x = 0.0f;      // state (yaw estimate)
+float kf_P = 1.0f;      // covariance
+float kf_Q = 0.02f; //0.02    // process noise
+float kf_R = 0.5f;  //0.5  //turunin -> trust compass  // measurement noise
+bool kf_initialized = false;
 
 // Moving average buffer
 #define YAW_RATE_MA_WINDOW 50
@@ -246,7 +255,7 @@ class SSYController {
 
     SSYController(float distance) {
       d = distance;
-    }
+    } 
 
     void control(float Fx, float Fy, float tau, float thrust[4]) {
       float M[4][4] = {
@@ -760,6 +769,10 @@ void run_control_loop()
     {
         WitSerialDataIn(Serial6.read());
     }
+    // ==========================
+    // GYRO Z (deg/s) for KF predict
+    // ==========================
+    float gyro_z = sReg[GZ] / 32768.0f * 2000.0f; // sesuaikan dengan full-scale IMU
 
     if (s_cDataUpdate & ACC_UPDATE)
     {
@@ -768,6 +781,22 @@ void run_control_loop()
 
         s_cDataUpdate &= ~ACC_UPDATE;
     }
+
+        // ==========================
+        // KALMAN PREDICT STEP
+        // ==========================
+        float dt_kf = LOOP_DT;
+
+        if (!kf_initialized)
+        {
+            kf_x = yaw;
+            kf_initialized = true;
+        }
+
+        kf_x = kf_x + gyro_z * dt_kf;
+        kf_P = kf_P + kf_Q;
+        if (kf_x < 0) kf_x += 360.0f;
+        if (kf_x >= 360.0f) kf_x -= 360.0f;
 
     // 2. BACA KOMPAS (HWT3100)
     uint8_t result = nodemod.readHoldingRegisters(0xDE, 1);
@@ -785,30 +814,45 @@ void run_control_loop()
         if (yaw < 0) yaw += 360.0f;
         if (yaw >= 360.0) yaw -= 360.0f;
 
+        // ==========================
+        // KALMAN UPDATE STEP
+        // ==========================
+        float innovation = calculate_heading_error(kf_x, yaw);
+
+        float S = kf_P + kf_R;
+        float K = kf_P / S;
+
+        kf_x = kf_x + K * innovation;
+        kf_P = (1.0f - K) * kf_P;
+
+        // wrap 0–360
+        if (kf_x < 0) kf_x += 360.0f;
+        if (kf_x >= 360.0f) kf_x -= 360.0f;
+
         unsigned long now = millis();
         float dt = (now - last_compass_time) / 1000.0f;
 
         if (dt > 0.001 && last_compass_time > 0)
         {
-        float delta = calculate_heading_error(last_yaw, yaw);
-        yaw_rate = delta / dt;
+          float delta = calculate_heading_error(last_yaw, yaw);
+          yaw_rate = delta / dt;
 
-        // reject spike
-        if (fabs(yaw_rate) < 400.0f)
-        {
-            float ma = updateYawRateMA(yaw_rate);
+          // reject spike
+          if (fabs(yaw_rate) < 400.0f)
+          {
+              float ma = updateYawRateMA(yaw_rate);
 
-            // low pass filter tambahan
-            const float alpha = 0.3f;
-            yaw_rate_filtered =
-                alpha * ma +
-                (1.0f - alpha) * yaw_rate_filtered;
-        }
+              // low pass filter tambahan
+              const float alpha = 0.3f;
+              yaw_rate_filtered =
+                  alpha * ma +
+                  (1.0f - alpha) * yaw_rate_filtered;
+          }
         }
 
         last_compass_time = now;
     }
-
+    
     // 3. BACA DEPTH
     sensor.read();
     depth = sensor.depth();
@@ -817,13 +861,7 @@ void run_control_loop()
     // APPLY MOVING AVERAGE FILTER
     // ===============================
 
-    float yaw_filtered = updateMA(
-        yaw,
-        yaw_buffer,
-        yaw_idx,
-        yaw_full,
-        YAW_MA_WINDOW);
-
+    float yaw_filtered = kf_x;
     float pitch_filtered = updateMA(
         pitch,
         pitch_buffer,
@@ -872,9 +910,10 @@ void run_control_loop()
 
     // Calculate control outputs
     float u = pid_yaw.calculate(error_yaw);
+    // float u = kp_yaw * error_yaw - kd_yaw * yaw_rate_filtered;
 
     // scaling supaya range cocok ke -3..3
-    float t_yaw = u * 0.01f;
+    t_yaw = u * 0.01f;
 
     camera_yaw = -3 + ((pid_camera.calculate(camera_error) - (-500)) / (500 - (-500))) * (3 - (-3));
 
@@ -896,7 +935,7 @@ void run_control_loop()
     }
     else if (status == "backward")
     {
-        ssyController.control(0, -2, (t_yaw), thrust_ssy);
+        ssyController.control(0, -1, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "all_slow")
@@ -976,12 +1015,12 @@ void run_control_loop()
     }
     else if (status == "sway_right")
     {
-        ssyController.control(-3, 0, (t_yaw), thrust_ssy);
+        ssyController.control(-1, 0, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_left")
     {
-        ssyController.control(3, 0.4, (t_yaw), thrust_ssy);
+        ssyController.control(1, 0, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "yaw_right")
