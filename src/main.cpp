@@ -21,19 +21,21 @@
 #include <rmw_microros/rmw_microros.h>
 #include <ModbusMaster.h>
 
-void run_control_loop(); 
+void run_control_loop();
 
 // Initialize ModbusMaster HWT3100
 #define DE_RE 20
 
 ModbusMaster nodemod;
 
-void preTransmission() {
+void preTransmission()
+{
   digitalWrite(DE_RE, HIGH);
-  delayMicroseconds(10);     
+  delayMicroseconds(10);
 }
 
-void postTransmission() {
+void postTransmission()
+{
   delayMicroseconds(10);
   digitalWrite(DE_RE, LOW);
 }
@@ -52,14 +54,24 @@ void postTransmission() {
 
 /*
  * Helper functions to help reconnect
-*/
-#define EXECUTE_EVERY_N_MS(MS, X)  do { \
+ */
+#define EXECUTE_EVERY_N_MS(MS, X)      \
+  do                                   \
+  {                                    \
     static volatile int64_t init = -1; \
-    if (init == -1) { init = uxr_millis();} \
-    if (uxr_millis() - init > MS) { X; init = uxr_millis();} \
+    if (init == -1)                    \
+    {                                  \
+      init = uxr_millis();             \
+    }                                  \
+    if (uxr_millis() - init > MS)      \
+    {                                  \
+      X;                               \
+      init = uxr_millis();             \
+    }                                  \
   } while (0)
 
-enum states {
+enum states
+{
   WAITING_AGENT,
   AGENT_AVAILABLE,
   AGENT_CONNECTED,
@@ -91,7 +103,6 @@ auv_interfaces__msg__Sensor sensor_msg;
 std_msgs__msg__String status_msg;
 std_msgs__msg__Float32 boost_msg;
 
-
 // =====================================================
 // DEADBAND PER-THRUSTER (Hasil pengukuran lab)
 // =====================================================
@@ -108,34 +119,34 @@ std_msgs__msg__Float32 boost_msg;
 // =====================================================
 
 const int THRUSTER_FORWARD_START[10] = {
-  1527,  // T1  (idx 0) — belum diukur, pakai nilai tertinggi (aman) //1521
-  1527,  // T2  (idx 1) — diukur                                     //1518
-  1528,  // T3  (idx 2) — diukur                                     //1518
-  1528,  // T4  (idx 3) — diukur                                     //1519
-  1528,  // T5  (idx 4) — diukur                                     //1519
-  1528,  // T6  (idx 5) — diukur                                     //1519
-  1528,  // T7  (idx 6) — diukur                                     //1521
-  1528,  // T8  (idx 7) — diukur                                     //1519
-  1521,  // T9  (idx 8) — belum diukur, pakai nilai tertinggi (aman)  //ga pake thruster boost
-  1521   // T10 (idx 9) — belum diukur, pakai nilai tertinggi (aman)  //ga pake thruster boost
+    1527, // T1  (idx 0) — belum diukur, pakai nilai tertinggi (aman) //1521
+    1527, // T2  (idx 1) — diukur                                     //1518
+    1528, // T3  (idx 2) — diukur                                     //1518
+    1528, // T4  (idx 3) — diukur                                     //1519
+    1528, // T5  (idx 4) — diukur                                     //1519
+    1528, // T6  (idx 5) — diukur                                     //1519
+    1528, // T7  (idx 6) — diukur                                     //1521
+    1528, // T8  (idx 7) — diukur                                     //1519
+    1521, // T9  (idx 8) — belum diukur, pakai nilai tertinggi (aman)  //ga pake thruster boost
+    1521  // T10 (idx 9) — belum diukur, pakai nilai tertinggi (aman)  //ga pake thruster boost
 };
 
 const int THRUSTER_REVERSE_START[10] = {
-  1467,  // T1  (idx 0) — belum diukur, pakai nilai terendah (aman) //1467
-  1467,  // T2  (idx 1) — diukur                                    //1476
-  1468,  // T3  (idx 2) — diukur                                    //1477
-  1468,  // T4  (idx 3) — diukur                                    //1477
-  1467,  // T5  (idx 4) — diukur 1476, TAPI tidak stabil! Pakai 1467 agar nyala terus
-  1468,  // T6  (idx 5) — diukur                                    //1477
-  1470,  // T7  (idx 6) — diukur                                    //1479
-  1467,  // T8  (idx 7) — diukur                                    //1476
-  1467,  // T9  (idx 8) — belum diukur, pakai nilai terendah (aman)  //ga pake thruster boost
-  1467   // T10 (idx 9) — belum diukur, pakai nilai terendah (aman)  //ga pake thruster boost
+    1467, // T1  (idx 0) — belum diukur, pakai nilai terendah (aman) //1467
+    1467, // T2  (idx 1) — diukur                                    //1476
+    1468, // T3  (idx 2) — diukur                                    //1477
+    1468, // T4  (idx 3) — diukur                                    //1477
+    1467, // T5  (idx 4) — diukur 1476, TAPI tidak stabil! Pakai 1467 agar nyala terus
+    1468, // T6  (idx 5) — diukur                                    //1477
+    1470, // T7  (idx 6) — diukur                                    //1479
+    1467, // T8  (idx 7) — diukur                                    //1476
+    1467, // T9  (idx 8) — belum diukur, pakai nilai terendah (aman)  //ga pake thruster boost
+    1467  // T10 (idx 9) — belum diukur, pakai nilai terendah (aman)  //ga pake thruster boost
 };
 
 const int PWM_NEUTRAL = 1500;
-const int PWM_MIN = 1250; //1250
-const int PWM_MAX = 1750; //1750
+const int PWM_MIN = 1100;   // 1250
+const int PWM_MAX = 1900;   // 1750
 const float LOOP_DT = 0.01; // 100 Hz
 
 // Sensor and control variables
@@ -161,10 +172,10 @@ unsigned long last_compass_time = 0;
 // ==========================
 // KALMAN FILTER YAW
 // ==========================
-float kf_x = 0.0f;      // state (yaw estimate)
-float kf_P = 1.0f;      // covariance
-float kf_Q = 0.02f; //0.02    // process noise
-float kf_R = 0.5f;  //0.5  //turunin -> trust compass  // measurement noise
+float kf_x = 0.0f;  // state (yaw estimate)
+float kf_P = 1.0f;  // covariance
+float kf_Q = 0.02f; // 0.02    // process noise
+float kf_R = 0.5f;  // 0.5  //turunin -> trust compass  // measurement noise
 bool kf_initialized = false;
 
 // Moving average buffer
@@ -204,101 +215,111 @@ String class_name = "None";
 int camera_error = 0;
 String status = "stop";
 
-byte pin_thruster[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
+byte pin_thruster[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 Servo thruster[10];
 Servo camera;
 MS5837 sensor;
 
 // Sensor communication variables
 static volatile char s_cDataUpdate = 0;
-const uint32_t c_uiBaud[8] = { 0, 4800, 9600, 19200, 38400, 57600, 115200, 230400 };
+const uint32_t c_uiBaud[8] = {0, 4800, 9600, 19200, 38400, 57600, 115200, 230400};
 float sqrt2 = sqrt(2);
 
 // PID Controller Class
-class PID {
-  public:
-    float kp, ki, kd;
-    float integral;
-    float last_error;
+class PID
+{
+public:
+  float kp, ki, kd;
+  float integral;
+  float last_error;
 
-    PID(float kp, float ki, float kd)
+  PID(float kp, float ki, float kd)
       : kp(kp), ki(ki), kd(kd), integral(0), last_error(0) {}
 
-    void updateGains(float new_kp, float new_ki, float new_kd) {
-      kp = new_kp;
-      ki = new_ki;
-      kd = new_kd;
-    }
+  void updateGains(float new_kp, float new_ki, float new_kd)
+  {
+    kp = new_kp;
+    ki = new_ki;
+    kd = new_kd;
+  }
 
-    float calculate(float error) {
-      // Integral
-      integral += error * LOOP_DT;
+  float calculate(float error)
+  {
+    // Integral
+    integral += error * LOOP_DT;
 
-      // Batasi integral (anti windup)
-      integral = constrain(integral, -10.0f, 10.0f);
+    // Batasi integral (anti windup)
+    integral = constrain(integral, -10.0f, 10.0f);
 
-      float derivative = (error - last_error) / LOOP_DT;
-      last_error = error;
+    float derivative = (error - last_error) / LOOP_DT;
+    last_error = error;
 
-      float p = kp * error;
-      float i = ki * integral;
-      float d = kd * derivative;
+    float p = kp * error;
+    float i = ki * integral;
+    float d = kd * derivative;
 
-      return p + i + d;
-    }
+    return p + i + d;
+  }
 };
 
 // SSY Controller Class
-class SSYController {
-  public:
-    float d;
+class SSYController
+{
+public:
+  float d;
 
-    SSYController(float distance) {
-      d = distance;
-    } 
+  SSYController(float distance)
+  {
+    d = distance;
+  }
 
-    void control(float Fx, float Fy, float tau, float thrust[4]) {
-      float M[4][4] = {
-        { -0.5f / sqrt2, 0.5f / sqrt2, d / 4.0f, 0.25f },
-        { 0.5f / sqrt2, 0.5f / sqrt2, -d / 4.0f, -0.25f },
-        { 0.5f / sqrt2, 0.5f / sqrt2, -d / 4.0f, 0.25f },
-        { -0.5f / sqrt2, 0.5f / sqrt2, d / 4.0f, -0.25f }
-      };
+  void control(float Fx, float Fy, float tau, float thrust[4])
+  {
+    float M[4][4] = {
+        {-0.5f / sqrt2, 0.5f / sqrt2, d / 4.0f, 0.25f},
+        {0.5f / sqrt2, 0.5f / sqrt2, -d / 4.0f, -0.25f},
+        {0.5f / sqrt2, 0.5f / sqrt2, -d / 4.0f, 0.25f},
+        {-0.5f / sqrt2, 0.5f / sqrt2, d / 4.0f, -0.25f}};
 
-      float F[4] = { Fx, Fy, 0, tau };
+    float F[4] = {Fx, Fy, 0, tau};
 
-      for (int i = 0; i < 4; i++) {
-        thrust[i] = 0;
-        for (int j = 0; j < 4; j++) {
-          thrust[i] += M[i][j] * F[j];
-        }
+    for (int i = 0; i < 4; i++)
+    {
+      thrust[i] = 0;
+      for (int j = 0; j < 4; j++)
+      {
+        thrust[i] += M[i][j] * F[j];
       }
     }
+  }
 };
 
 // DPR Controller Class
-class DPRController {
-  public:
-    float Lx, Ly;
+class DPRController
+{
+public:
+  float Lx, Ly;
 
-    DPRController(float lx, float ly) : Lx(lx), Ly(ly) {}
+  DPRController(float lx, float ly) : Lx(lx), Ly(ly) {}
 
-    void control(float control_depth, float control_pitch, float control_roll, float thrust[4]) {
-      float A[3][4] = {
-        { Ly, -Ly, Ly, -Ly },
-        { Lx, Lx, -Lx, -Lx },
-        { 1, 1, 1, 1 }
-      };
+  void control(float control_depth, float control_pitch, float control_roll, float thrust[4])
+  {
+    float A[3][4] = {
+        {Ly, -Ly, Ly, -Ly},
+        {Lx, Lx, -Lx, -Lx},
+        {1, 1, 1, 1}};
 
-      float desired_control[3] = { control_depth, control_pitch, control_roll };
+    float desired_control[3] = {control_depth, control_pitch, control_roll};
 
-      for (int i = 0; i < 4; i++) {
-        thrust[i] = 0;
-        for (int j = 0; j < 3; j++) {
-          thrust[i] += A[j][i] * desired_control[j];
-        }
+    for (int i = 0; i < 4; i++)
+    {
+      thrust[i] = 0;
+      for (int j = 0; j < 3; j++)
+      {
+        thrust[i] += A[j][i] * desired_control[j];
       }
     }
+  }
 };
 
 // Controller instances
@@ -313,10 +334,13 @@ PID pid_depth(0, 0, 0);
 PID pid_camera(0, 0, 0);
 
 // Helper functions
-float calculate_heading_error(float current, float target) {
+float calculate_heading_error(float current, float target)
+{
   float error = target - current;
-  if (error > 180) error -= 360;
-  else if (error < -180) error += 360;
+  if (error > 180)
+    error -= 360;
+  else if (error < -180)
+    error += 360;
   return error;
 }
 
@@ -325,7 +349,8 @@ float updateYawRateMA(float new_rate)
   yaw_rate_buffer[yaw_rate_idx] = new_rate;
   yaw_rate_idx++;
 
-  if (yaw_rate_idx >= YAW_RATE_MA_WINDOW) {
+  if (yaw_rate_idx >= YAW_RATE_MA_WINDOW)
+  {
     yaw_rate_idx = 0;
     yaw_rate_full = true;
   }
@@ -339,12 +364,13 @@ float updateYawRateMA(float new_rate)
   return sum / count;
 }
 
-float updateMA(float new_value,float *buffer,int &idx,bool &full,int window_size)
+float updateMA(float new_value, float *buffer, int &idx, bool &full, int window_size)
 {
   buffer[idx] = new_value;
   idx++;
 
-  if (idx >= window_size) {
+  if (idx >= window_size)
+  {
     idx = 0;
     full = true;
   }
@@ -374,11 +400,11 @@ int applyDeadband(int thruster_idx, float control_scaled)
 
   if (control_scaled > 0)
   {
-    pwm = fwd + (int)control_scaled;  // maju: mulai dari batas forward
+    pwm = fwd + (int)control_scaled; // maju: mulai dari batas forward
   }
   else if (control_scaled < 0)
   {
-    pwm = rev + (int)control_scaled;  // mundur: mulai dari batas reverse
+    pwm = rev + (int)control_scaled; // mundur: mulai dari batas reverse
   }
   else
   {
@@ -388,15 +414,17 @@ int applyDeadband(int thruster_idx, float control_scaled)
   return constrain(pwm, PWM_MIN, PWM_MAX);
 }
 
-bool generate_is_stable(float thresh, float error) {
+bool generate_is_stable(float thresh, float error)
+{
   return (-thresh <= error) && (error <= thresh);
 }
 
 // Callback functions
-bool receive_status = false;  
-void status_callback(const void *msgin) {
+bool receive_status = false;
+void status_callback(const void *msgin)
+{
   const std_msgs__msg__String *status_msg = (const std_msgs__msg__String *)msgin;
-  
+
   // receive message
   String received_status = String(status_msg->data.data);
   status = received_status;
@@ -404,7 +432,8 @@ void status_callback(const void *msgin) {
 }
 
 bool receive_boost = false;
-void boost_callback(const void *msgin) {
+void boost_callback(const void *msgin)
+{
   const std_msgs__msg__Float32 *boost_msg = (const std_msgs__msg__Float32 *)msgin;
 
   constrain_boost = boost_msg->data;
@@ -412,7 +441,8 @@ void boost_callback(const void *msgin) {
 }
 
 bool receive_set_point = false;
-void set_point_callback(const void *msgin) {
+void set_point_callback(const void *msgin)
+{
   const auv_interfaces__msg__SetPoint *set_point_msg = (const auv_interfaces__msg__SetPoint *)msgin;
 
   set_point_yaw = set_point_msg->yaw;
@@ -423,9 +453,10 @@ void set_point_callback(const void *msgin) {
 }
 
 bool recieve_pid = false;
-void pid_callback(const void *msgin) {
+void pid_callback(const void *msgin)
+{
   const auv_interfaces__msg__MultiPID *pid_msg = (const auv_interfaces__msg__MultiPID *)msgin;
-  
+
   kp_yaw = pid_msg->pid_yaw.kp;
   ki_yaw = pid_msg->pid_yaw.ki;
   kd_yaw = pid_msg->pid_yaw.kd;
@@ -449,15 +480,17 @@ void pid_callback(const void *msgin) {
   recieve_pid = true;
 }
 
-void object_difference_callback(const void *msgin) {
+void object_difference_callback(const void *msgin)
+{
   const auv_interfaces__msg__ObjectDifference *object_difference_msg = (const auv_interfaces__msg__ObjectDifference *)msgin;
-  
+
   class_name = object_difference_msg->object_type.data;
   camera_error = object_difference_msg->x_difference;
 }
 
-void timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
-  (void) last_call_time;
+void timer_callback(rcl_timer_t *timer, int64_t last_call_time)
+{
+  (void)last_call_time;
   if (timer != NULL)
   {
     run_control_loop();
@@ -622,9 +655,10 @@ bool create_entities()
   return true;
 }
 
-void destroy_entities() {
-  rmw_context_t * rmw_context = rcl_context_get_rmw_context(&support.context);
-  (void) rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
+void destroy_entities()
+{
+  rmw_context_t *rmw_context = rcl_context_get_rmw_context(&support.context);
+  (void)rmw_uros_set_context_entity_destroy_session_timeout(rmw_context, 0);
 
   rcl_timer_fini(&timer);
   rclc_executor_fini(&executor);
@@ -648,38 +682,48 @@ void destroy_entities() {
 }
 
 // Sensor communication functions for HWT905
-static void SensorUartSend(uint8_t *p_data, uint32_t uiSize) {
+static void SensorUartSend(uint8_t *p_data, uint32_t uiSize)
+{
   Serial6.write(p_data, uiSize);
   Serial6.flush();
 }
 
-static void Delayms(uint16_t ucMs) {
+static void Delayms(uint16_t ucMs)
+{
   delay(ucMs);
 }
 
-static void SensorDataUpdata(uint32_t uiReg, uint32_t uiRegNum) {
-  for (uint32_t i = 0; i < uiRegNum; i++) {
-    if (uiReg == AZ) {
+static void SensorDataUpdata(uint32_t uiReg, uint32_t uiRegNum)
+{
+  for (uint32_t i = 0; i < uiRegNum; i++)
+  {
+    if (uiReg == AZ)
+    {
       s_cDataUpdate |= ACC_UPDATE;
     }
     uiReg++;
   }
 }
 
-static void AutoScanSensor(void) {
+static void AutoScanSensor(void)
+{
   int iRetry;
-  for (size_t i = 0; i < sizeof(c_uiBaud) / sizeof(c_uiBaud[0]); i++) {
+  for (size_t i = 0; i < sizeof(c_uiBaud) / sizeof(c_uiBaud[0]); i++)
+  {
     Serial6.begin(115200);
     Serial6.flush();
     iRetry = 2;
     s_cDataUpdate = 0;
-    do {
+    do
+    {
       WitReadReg(AX, 3);
       delay(200);
-      while (Serial6.available()) {
+      while (Serial6.available())
+      {
         WitSerialDataIn(Serial6.read());
       }
-      if (s_cDataUpdate != 0) {
+      if (s_cDataUpdate != 0)
+      {
         Serial.print(c_uiBaud[i]);
         Serial.print(" baud find sensor\r\n\r\n");
         return;
@@ -690,7 +734,8 @@ static void AutoScanSensor(void) {
   Serial.print("Cannot find sensor\r\n");
 }
 
-void setup() {
+void setup()
+{
   // Initialize serial communication
   Serial.begin(115200);
   set_microros_serial_transports(Serial);
@@ -713,15 +758,18 @@ void setup() {
   WitDelayMsRegister(Delayms);
   AutoScanSensor();
 
-  for (int i = 0; i < 10; i++) {
-    if (!thruster[i].attach(pin_thruster[i])) {
+  for (int i = 0; i < 10; i++)
+  {
+    if (!thruster[i].attach(pin_thruster[i]))
+    {
       Serial.printf("Failed to attach thruster %d\n", i);
     }
     thruster[i].writeMicroseconds(1500);
   }
 
   // camera initialize servo
-  if (!camera.attach(17)) {
+  if (!camera.attach(17))
+  {
     Serial.println("Failed to attach camera servo");
   }
 
@@ -730,14 +778,18 @@ void setup() {
   // Initialize MS5837 depth sensor
   Wire.begin();
   int attempts = 0;
-  while (!sensor.init() && attempts < 5) {
+  while (!sensor.init() && attempts < 5)
+  {
     Serial.println("Init failed! Retrying...");
     delay(1000);
     attempts++;
   }
-  if (attempts >= 5) {
+  if (attempts >= 5)
+  {
     Serial.println("Failed to initialize depth sensor after 5 attempts");
-  } else {
+  }
+  else
+  {
     sensor.setModel(MS5837::MS5837_30BA);
     sensor.setFluidDensity(997);
     Serial.println("Depth sensor initialized successfully");
@@ -764,405 +816,415 @@ void setup() {
 
 void run_control_loop()
 {
-    // Read pitch and roll from Serial6
-    while (Serial6.available())
-    {
-        WitSerialDataIn(Serial6.read());
-    }
+  // Read pitch and roll from Serial6
+  while (Serial6.available())
+  {
+    WitSerialDataIn(Serial6.read());
+  }
+  // ==========================
+  // GYRO Z (deg/s) for KF predict
+  // ==========================
+  float gyro_z = sReg[GZ] / 32768.0f * 2000.0f; // sesuaikan dengan full-scale IMU
+
+  if (s_cDataUpdate & ACC_UPDATE)
+  {
+    pitch = sReg[AY] / 32768.0f * 16.0f;
+    roll = sReg[AX] / 32768.0f * 16.0f;
+
+    s_cDataUpdate &= ~ACC_UPDATE;
+  }
+
+  // ==========================
+  // KALMAN PREDICT STEP
+  // ==========================
+  float dt_kf = LOOP_DT;
+
+  if (!kf_initialized)
+  {
+    kf_x = yaw;
+    kf_initialized = true;
+  }
+
+  kf_x = kf_x + gyro_z * dt_kf;
+  kf_P = kf_P + kf_Q;
+  if (kf_x < 0)
+    kf_x += 360.0f;
+  if (kf_x >= 360.0f)
+    kf_x -= 360.0f;
+
+  // 2. BACA KOMPAS (HWT3100)
+  uint8_t result = nodemod.readHoldingRegisters(0xDE, 1);
+
+  if (result == nodemod.ku8MBSuccess)
+  {
+    int16_t raw = nodemod.getResponseBuffer(0);
+
+    // RAW → YAW (derajat)
+    last_yaw = yaw;
+
+    yaw = raw / 10.0f;
+    yaw = -yaw;
+
+    if (yaw < 0)
+      yaw += 360.0f;
+    if (yaw >= 360.0)
+      yaw -= 360.0f;
+
     // ==========================
-    // GYRO Z (deg/s) for KF predict
+    // KALMAN UPDATE STEP
     // ==========================
-    float gyro_z = sReg[GZ] / 32768.0f * 2000.0f; // sesuaikan dengan full-scale IMU
+    float innovation = calculate_heading_error(kf_x, yaw);
 
-    if (s_cDataUpdate & ACC_UPDATE)
+    float S = kf_P + kf_R;
+    float K = kf_P / S;
+
+    kf_x = kf_x + K * innovation;
+    kf_P = (1.0f - K) * kf_P;
+
+    // wrap 0–360
+    if (kf_x < 0)
+      kf_x += 360.0f;
+    if (kf_x >= 360.0f)
+      kf_x -= 360.0f;
+
+    unsigned long now = millis();
+    float dt = (now - last_compass_time) / 1000.0f;
+
+    if (dt > 0.001 && last_compass_time > 0)
     {
-        pitch = sReg[AY] / 32768.0f * 16.0f;
-        roll = sReg[AX] / 32768.0f * 16.0f;
+      float delta = calculate_heading_error(last_yaw, yaw);
+      yaw_rate = delta / dt;
 
-        s_cDataUpdate &= ~ACC_UPDATE;
+      // reject spike
+      if (fabs(yaw_rate) < 400.0f)
+      {
+        float ma = updateYawRateMA(yaw_rate);
+
+        // low pass filter tambahan
+        const float alpha = 0.3f;
+        yaw_rate_filtered =
+            alpha * ma +
+            (1.0f - alpha) * yaw_rate_filtered;
+      }
     }
 
-        // ==========================
-        // KALMAN PREDICT STEP
-        // ==========================
-        float dt_kf = LOOP_DT;
+    last_compass_time = now;
+  }
 
-        if (!kf_initialized)
-        {
-            kf_x = yaw;
-            kf_initialized = true;
-        }
+  // 3. BACA DEPTH
+  sensor.read();
+  depth = sensor.depth();
 
-        kf_x = kf_x + gyro_z * dt_kf;
-        kf_P = kf_P + kf_Q;
-        if (kf_x < 0) kf_x += 360.0f;
-        if (kf_x >= 360.0f) kf_x -= 360.0f;
+  // ===============================
+  // APPLY MOVING AVERAGE FILTER
+  // ===============================
 
-    // 2. BACA KOMPAS (HWT3100)
-    uint8_t result = nodemod.readHoldingRegisters(0xDE, 1);
+  float yaw_filtered = kf_x;
+  float pitch_filtered = updateMA(
+      pitch,
+      pitch_buffer,
+      pitch_idx,
+      pitch_full,
+      PITCH_MA_WINDOW);
 
-    if (result == nodemod.ku8MBSuccess)
-    {
-        int16_t raw = nodemod.getResponseBuffer(0);
+  float roll_filtered = updateMA(
+      roll,
+      roll_buffer,
+      roll_idx,
+      roll_full,
+      ROLL_MA_WINDOW);
 
-        // RAW → YAW (derajat)
-        last_yaw = yaw;
+  float depth_filtered = updateMA(
+      depth,
+      depth_buffer,
+      depth_idx,
+      depth_full,
+      DEPTH_MA_WINDOW);
 
-        yaw = raw / 10.0f;
-        yaw = -yaw;
+  // Calculate errors
+  error_yaw = calculate_heading_error(yaw_filtered, set_point_yaw);
+  error_pitch = set_point_pitch - pitch_filtered;
+  error_roll = set_point_roll - roll_filtered;
+  error_depth = set_point_depth - depth_filtered;
 
-        if (yaw < 0) yaw += 360.0f;
-        if (yaw >= 360.0) yaw -= 360.0f;
+  // Check stability
+  is_stable_roll = generate_is_stable(0, error_roll);
+  is_stable_pitch = generate_is_stable(0, error_pitch);
+  is_stable_yaw = generate_is_stable(0, error_yaw);
+  is_stable_depth = generate_is_stable(0, error_depth);
 
-        // ==========================
-        // KALMAN UPDATE STEP
-        // ==========================
-        float innovation = calculate_heading_error(kf_x, yaw);
+  // Zero error if stable
+  error_roll = is_stable_roll ? 0 : error_roll;
+  error_pitch = is_stable_pitch ? 0 : error_pitch;
+  error_yaw = is_stable_yaw ? 0 : error_yaw;
+  error_depth = is_stable_depth ? 0 : error_depth;
 
-        float S = kf_P + kf_R;
-        float K = kf_P / S;
+  // Update PID gains (objek global, state integral & last_error tetap tersimpan)
+  pid_yaw.updateGains(kp_yaw, ki_yaw, kd_yaw);
+  pid_roll.updateGains(kp_roll, ki_roll, kd_roll);
+  pid_pitch.updateGains(kp_pitch, ki_pitch, kd_pitch);
+  pid_depth.updateGains(kp_depth, ki_depth, kd_depth);
+  pid_camera.updateGains(kp_camera, ki_camera, kd_camera);
 
-        kf_x = kf_x + K * innovation;
-        kf_P = (1.0f - K) * kf_P;
+  // Calculate control outputs
+  float u = pid_yaw.calculate(error_yaw);
+  // float u = kp_yaw * error_yaw - kd_yaw * yaw_rate_filtered;
 
-        // wrap 0–360
-        if (kf_x < 0) kf_x += 360.0f;
-        if (kf_x >= 360.0f) kf_x -= 360.0f;
+  // scaling supaya range cocok ke -3..3
+  t_yaw = u * 0.01f;
 
-        unsigned long now = millis();
-        float dt = (now - last_compass_time) / 1000.0f;
+  camera_yaw = -3 + ((pid_camera.calculate(camera_error) - (-500)) / (500 - (-500))) * (3 - (-3));
 
-        if (dt > 0.001 && last_compass_time > 0)
-        {
-          float delta = calculate_heading_error(last_yaw, yaw);
-          yaw_rate = delta / dt;
+  // Control logic based on status
+  if (status == "stop")
+  {
+    ssyController.control(0, 0, 0, thrust_ssy);
+    dprController.control(0, 0, 0, thrust_dpr);
+  }
+  else if (status == "all")
+  {
+    ssyController.control(0, 1, (t_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "all_boost")
+  {
+    ssyController.control(0, 2, (t_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "backward")
+  {
+    ssyController.control(0, -1, (t_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "all_slow")
+  {
+    ssyController.control(0, .5, (t_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "last")
+  {
+    ssyController.control(0, 2, 0, thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "last_slow")
+  {
+    ssyController.control(0, 1, 0, thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "pitch")
+  {
+    ssyController.control(0, 0, 0, thrust_ssy);
+    dprController.control(pid_depth.calculate(0), pid_pitch.calculate(error_pitch), pid_roll.calculate(0), thrust_dpr);
+  }
+  else if (status == "roll")
+  {
+    ssyController.control(0, 0, 0, thrust_ssy);
+    dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "yaw")
+  {
+    ssyController.control(0, 0, (t_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(0), thrust_dpr);
+  }
+  else if (status == "depth")
+  {
+    ssyController.control(0, 0, 0, thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(0), pid_roll.calculate(0), thrust_dpr);
+  }
+  else if (status == "dpr")
+  {
+    ssyController.control(0, 0, 0, thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "dpr_ssy")
+  {
+    ssyController.control(0, 0, (t_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "camera")
+  {
+    ssyController.control(0, 1, camera_yaw, thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "camera_sway")
+  {
+    ssyController.control((camera_yaw * 0.5), 0, (camera_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "camera_yaw")
+  {
+    ssyController.control(0, 0, (camera_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "camera_sway_forward")
+  {
+    ssyController.control(-(camera_yaw * 0.5), 1, (t_yaw * 0.5), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "sway_right_forward")
+  {
+    ssyController.control(-3, 1, (t_yaw + 2), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "sway_left_forward")
+  {
+    ssyController.control(3, 2, (t_yaw - 2), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "sway_right")
+  {
+    ssyController.control(-1, 0, (t_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "sway_left")
+  {
+    ssyController.control(1, 0, (t_yaw), thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "yaw_right")
+  {
+    ssyController.control(0, 0, -0.3, thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
+  else if (status == "yaw_left")
+  {
+    ssyController.control(0, 0, 0.3, thrust_ssy);
+    dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+  }
 
-          // reject spike
-          if (fabs(yaw_rate) < 400.0f)
-          {
-              float ma = updateYawRateMA(yaw_rate);
+  // =====================================================
+  // CALCULATE PWM WITH PER-THRUSTER DEADBAND
+  // =====================================================
+  // SSY thrusters (idx 0-3)
+  pwm_thruster[0] = applyDeadband(0, -(thrust_ssy[1] * 500.0));
+  pwm_thruster[1] = applyDeadband(1, -(thrust_ssy[0] * 500.0));
+  pwm_thruster[2] = applyDeadband(2, -(thrust_ssy[3] * 500.0));
+  pwm_thruster[3] = applyDeadband(3, -(thrust_ssy[2] * 500.0));
 
-              // low pass filter tambahan
-              const float alpha = 0.3f;
-              yaw_rate_filtered =
-                  alpha * ma +
-                  (1.0f - alpha) * yaw_rate_filtered;
-          }
-        }
+  // DPR thrusters (idx 4-7)
+  pwm_thruster[4] = applyDeadband(4, -thrust_dpr[2]);
+  pwm_thruster[5] = applyDeadband(5, -thrust_dpr[1]);
+  pwm_thruster[6] = applyDeadband(6, thrust_dpr[0]);
+  pwm_thruster[7] = applyDeadband(7, thrust_dpr[3]);
 
-        last_compass_time = now;
-    }
-    
-    // 3. BACA DEPTH
-    sensor.read();
-    depth = sensor.depth();
+  // Boost thrusters (idx 8-9) — tetap pakai deadband per-thruster
+  // pwm_thruster[8] = applyDeadband(8, -(thrust_ssy[1] * constrain_boost));
+  // pwm_thruster[9] = applyDeadband(9, -(thrust_ssy[0] * constrain_boost));
 
-    // ===============================
-    // APPLY MOVING AVERAGE FILTER
-    // ===============================
+  // Special case for all_boost status
+  if (status == "all_boost")
+  {
+    pwm_thruster[0] = 1500.0;
+    pwm_thruster[1] = 1500.0;
+    pwm_thruster[2] = 1500.0;
+    pwm_thruster[3] = 1500.0;
+  }
 
-    float yaw_filtered = kf_x;
-    float pitch_filtered = updateMA(
-        pitch,
-        pitch_buffer,
-        pitch_idx,
-        pitch_full,
-        PITCH_MA_WINDOW);
+  // Apply PWM to thrusters
+  for (int i = 0; i < 10; i++)
+  {
+    thruster[i].writeMicroseconds(pwm_thruster[i]);
+  }
 
-    float roll_filtered = updateMA(
-        roll,
-        roll_buffer,
-        roll_idx,
-        roll_full,
-        ROLL_MA_WINDOW);
+  Serial.println("----------------------");
+  Serial.print("sensor yaw = ");
+  Serial.println(yaw);
+  Serial.print("error yaw = ");
+  Serial.println(error_yaw);
 
-    float depth_filtered = updateMA(
-        depth,
-        depth_buffer,
-        depth_idx,
-        depth_full,
-        DEPTH_MA_WINDOW);
+  Serial.print("sensor roll = ");
+  Serial.println(roll);
+  Serial.print("error roll = ");
+  Serial.println(error_roll);
 
-    // Calculate errors
-    error_yaw = calculate_heading_error(yaw_filtered, set_point_yaw);
-    error_pitch = set_point_pitch - pitch_filtered;
-    error_roll = set_point_roll - roll_filtered;
-    error_depth = set_point_depth - depth_filtered;
+  Serial.print("sensor pitch = ");
+  Serial.println(pitch);
+  Serial.print("error pitch = ");
+  Serial.println(error_pitch);
 
-    // Check stability
-    is_stable_roll = generate_is_stable(0, error_roll);
-    is_stable_pitch = generate_is_stable(0, error_pitch);
-    is_stable_yaw = generate_is_stable(0, error_yaw);
-    is_stable_depth = generate_is_stable(0, error_depth);
+  Serial.print("sensor depth = ");
+  Serial.println(depth);
+  Serial.print("error depth = ");
+  Serial.println(error_depth);
 
-    // Zero error if stable
-    error_roll = is_stable_roll ? 0 : error_roll;
-    error_pitch = is_stable_pitch ? 0 : error_pitch;
-    error_yaw = is_stable_yaw ? 0 : error_yaw;
-    error_depth = is_stable_depth ? 0 : error_depth;
+  Serial.print("pwm_thruster_1 = ");
+  Serial.println(pwm_thruster[0]);
+  Serial.print("pwm_thruster_2 = ");
+  Serial.println(pwm_thruster[1]);
+  Serial.print("pwm_thruster_3 = ");
+  Serial.println(pwm_thruster[2]);
+  Serial.print("pwm_thruster_4 = ");
+  Serial.println(pwm_thruster[3]);
+  Serial.print("pwm_thruster_5 = ");
+  Serial.println(pwm_thruster[4]);
+  Serial.print("pwm_thruster_6 = ");
+  Serial.println(pwm_thruster[5]);
+  Serial.print("pwm_thruster_7 = ");
+  Serial.println(pwm_thruster[6]);
+  Serial.print("pwm_thruster_8 = ");
+  Serial.println(pwm_thruster[7]);
+  Serial.print("pwm_thruster_9 = ");
+  Serial.println(pwm_thruster[8]);
+  Serial.print("pwm_thruster_10 = ");
+  Serial.println(pwm_thruster[9]);
 
-    // Update PID gains (objek global, state integral & last_error tetap tersimpan)
-    pid_yaw.updateGains(kp_yaw, ki_yaw, kd_yaw);
-    pid_roll.updateGains(kp_roll, ki_roll, kd_roll);
-    pid_pitch.updateGains(kp_pitch, ki_pitch, kd_pitch);
-    pid_depth.updateGains(kp_depth, ki_depth, kd_depth);
-    pid_camera.updateGains(kp_camera, ki_camera, kd_camera);
+  // Update message data
+  pwm_msg.thruster_1 = pwm_thruster[0];
+  pwm_msg.thruster_2 = pwm_thruster[1];
+  pwm_msg.thruster_3 = pwm_thruster[2];
+  pwm_msg.thruster_4 = pwm_thruster[3];
+  pwm_msg.thruster_5 = pwm_thruster[4];
+  pwm_msg.thruster_6 = pwm_thruster[5];
+  pwm_msg.thruster_7 = pwm_thruster[6];
+  pwm_msg.thruster_8 = pwm_thruster[7];
+  pwm_msg.thruster_9 = pwm_thruster[8];
+  pwm_msg.thruster_10 = pwm_thruster[9];
 
-    // Calculate control outputs
-    float u = pid_yaw.calculate(error_yaw);
-    // float u = kp_yaw * error_yaw - kd_yaw * yaw_rate_filtered;
+  // Update sensor message
+  //   sensor_msg.depth = depth;
+  //   sensor_msg.roll = roll;
+  //   sensor_msg.pitch = pitch;
+  //   sensor_msg.yaw = yaw;
+  sensor_msg.depth = depth_filtered;
+  sensor_msg.roll = roll_filtered;
+  sensor_msg.pitch = pitch_filtered;
+  sensor_msg.yaw = yaw_filtered;
 
-    // scaling supaya range cocok ke -3..3
-    t_yaw = u * 0.01f;
-
-    camera_yaw = -3 + ((pid_camera.calculate(camera_error) - (-500)) / (500 - (-500))) * (3 - (-3));
-
-    // Control logic based on status
-    if (status == "stop")
-    {
-        ssyController.control(0, 0, 0, thrust_ssy);
-        dprController.control(0, 0, 0, thrust_dpr);
-    }
-    else if (status == "all")
-    {
-        ssyController.control(0, 1, (t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "all_boost")
-    {
-        ssyController.control(0, 2, (t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "backward")
-    {
-        ssyController.control(0, -1, (t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "all_slow")
-    {
-        ssyController.control(0, .5, (t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "last")
-    {
-        ssyController.control(0, 2, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "last_slow")
-    {
-        ssyController.control(0, 1, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "pitch")
-    {
-        ssyController.control(0, 0, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(0), pid_pitch.calculate(error_pitch), pid_roll.calculate(0), thrust_dpr);
-    }
-    else if (status == "roll")
-    {
-        ssyController.control(0, 0, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "yaw")
-    {
-        ssyController.control(0, 0, (t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(0), pid_pitch.calculate(0), pid_roll.calculate(0), thrust_dpr);
-    }
-    else if (status == "depth")
-    {
-        ssyController.control(0, 0, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(0), pid_roll.calculate(0), thrust_dpr);
-    }
-    else if (status == "dpr")
-    {
-        ssyController.control(0, 0, 0, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "dpr_ssy")
-    {
-        ssyController.control(0, 0, (t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "camera")
-    {
-        ssyController.control(0, 1, camera_yaw, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "camera_sway")
-    {
-        ssyController.control((camera_yaw * 0.5), 0, (camera_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "camera_yaw")
-    {
-        ssyController.control(0, 0, (camera_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "camera_sway_forward")
-    {
-        ssyController.control(-(camera_yaw * 0.5), 1, (t_yaw * 0.5), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "sway_right_forward")
-    {
-        ssyController.control(-3, 1, (t_yaw + 2), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "sway_left_forward")
-    {
-        ssyController.control(3, 2, (t_yaw - 2), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "sway_right")
-    {
-        ssyController.control(-1, 0, (t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "sway_left")
-    {
-        ssyController.control(1, 0, (t_yaw), thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "yaw_right")
-    {
-        ssyController.control(0, 0, -0.3, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-    else if (status == "yaw_left")
-    {
-        ssyController.control(0, 0, 0.3, thrust_ssy);
-        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
-    }
-
-    // =====================================================
-    // CALCULATE PWM WITH PER-THRUSTER DEADBAND
-    // =====================================================
-    // SSY thrusters (idx 0-3)
-    pwm_thruster[0] = applyDeadband(0, -(thrust_ssy[1] * 500.0));
-    pwm_thruster[1] = applyDeadband(1, -(thrust_ssy[0] * 500.0));
-    pwm_thruster[2] = applyDeadband(2, -(thrust_ssy[3] * 500.0));
-    pwm_thruster[3] = applyDeadband(3, -(thrust_ssy[2] * 500.0));
-
-    // DPR thrusters (idx 4-7)
-    pwm_thruster[4] = applyDeadband(4, -thrust_dpr[2]);
-    pwm_thruster[5] = applyDeadband(5, -thrust_dpr[1]);
-    pwm_thruster[6] = applyDeadband(6,  thrust_dpr[0]);
-    pwm_thruster[7] = applyDeadband(7,  thrust_dpr[3]);
-
-    // Boost thrusters (idx 8-9) — tetap pakai deadband per-thruster
-    // pwm_thruster[8] = applyDeadband(8, -(thrust_ssy[1] * constrain_boost));
-    // pwm_thruster[9] = applyDeadband(9, -(thrust_ssy[0] * constrain_boost));
-
-    // Special case for all_boost status
-    if (status == "all_boost")
-    {
-        pwm_thruster[0] = 1500.0;
-        pwm_thruster[1] = 1500.0;
-        pwm_thruster[2] = 1500.0;
-        pwm_thruster[3] = 1500.0;
-    }
-
-    // Apply PWM to thrusters
-    for (int i = 0; i < 10; i++)
-    {
-        thruster[i].writeMicroseconds(pwm_thruster[i]);
-    }
-
-    Serial.println("----------------------");
-    Serial.print("sensor yaw = ");
-    Serial.println(yaw);
-    Serial.print("error yaw = ");
-    Serial.println(error_yaw);
-
-    Serial.print("sensor roll = ");
-    Serial.println(roll);
-    Serial.print("error roll = ");
-    Serial.println(error_roll);
-
-    Serial.print("sensor pitch = ");
-    Serial.println(pitch);
-    Serial.print("error pitch = ");
-    Serial.println(error_pitch);
-
-    Serial.print("sensor depth = ");
-    Serial.println(depth);
-    Serial.print("error depth = ");
-    Serial.println(error_depth);
-
-    Serial.print("pwm_thruster_1 = ");
-    Serial.println(pwm_thruster[0]);
-    Serial.print("pwm_thruster_2 = ");
-    Serial.println(pwm_thruster[1]);
-    Serial.print("pwm_thruster_3 = ");
-    Serial.println(pwm_thruster[2]);
-    Serial.print("pwm_thruster_4 = ");
-    Serial.println(pwm_thruster[3]);
-    Serial.print("pwm_thruster_5 = ");
-    Serial.println(pwm_thruster[4]);
-    Serial.print("pwm_thruster_6 = ");
-    Serial.println(pwm_thruster[5]);
-    Serial.print("pwm_thruster_7 = ");
-    Serial.println(pwm_thruster[6]);
-    Serial.print("pwm_thruster_8 = ");
-    Serial.println(pwm_thruster[7]);
-    Serial.print("pwm_thruster_9 = ");
-    Serial.println(pwm_thruster[8]);
-    Serial.print("pwm_thruster_10 = ");
-    Serial.println(pwm_thruster[9]);
-
-    // Update message data
-    pwm_msg.thruster_1 = pwm_thruster[0];
-    pwm_msg.thruster_2 = pwm_thruster[1];
-    pwm_msg.thruster_3 = pwm_thruster[2];
-    pwm_msg.thruster_4 = pwm_thruster[3];
-    pwm_msg.thruster_5 = pwm_thruster[4];
-    pwm_msg.thruster_6 = pwm_thruster[5];
-    pwm_msg.thruster_7 = pwm_thruster[6];
-    pwm_msg.thruster_8 = pwm_thruster[7];
-    pwm_msg.thruster_9 = pwm_thruster[8];
-    pwm_msg.thruster_10 = pwm_thruster[9];
-
-    // Update sensor message
-    //   sensor_msg.depth = depth; 
-    //   sensor_msg.roll = roll;
-    //   sensor_msg.pitch = pitch;
-    //   sensor_msg.yaw = yaw;
-    sensor_msg.depth = depth_filtered;
-    sensor_msg.roll = roll_filtered;
-    sensor_msg.pitch = pitch_filtered;
-    sensor_msg.yaw = yaw_filtered;
-
-    // Update error message
-    error_msg.depth = error_depth;
-    error_msg.roll = error_roll;
-    error_msg.pitch = error_pitch;
-    error_msg.yaw = error_yaw;
-    error_msg.camera = float(camera_error);
+  // Update error message
+  error_msg.depth = error_depth;
+  error_msg.roll = error_roll;
+  error_msg.pitch = error_pitch;
+  error_msg.yaw = error_yaw;
+  error_msg.camera = float(camera_error);
 }
 
-void loop() {
-  switch (state) {
-    case WAITING_AGENT:
-      EXECUTE_EVERY_N_MS(500, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_AVAILABLE : WAITING_AGENT;);
-      break;
-    case AGENT_AVAILABLE:
-      state = (true == create_entities()) ? AGENT_CONNECTED : WAITING_AGENT;
-      if (state == WAITING_AGENT) {
-        destroy_entities();
-      };
-      break;
-    case AGENT_CONNECTED:
-      EXECUTE_EVERY_N_MS(200, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
-      if (state == AGENT_CONNECTED) {
-        Serial.println("Executor running...");
-        rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
-      }
-      break;
-    case AGENT_DISCONNECTED:
+void loop()
+{
+  switch (state)
+  {
+  case WAITING_AGENT:
+    EXECUTE_EVERY_N_MS(500, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_AVAILABLE : WAITING_AGENT;);
+    break;
+  case AGENT_AVAILABLE:
+    state = (true == create_entities()) ? AGENT_CONNECTED : WAITING_AGENT;
+    if (state == WAITING_AGENT)
+    {
       destroy_entities();
-      state = WAITING_AGENT;
-      break;
-    default:
-      break;
+    };
+    break;
+  case AGENT_CONNECTED:
+    EXECUTE_EVERY_N_MS(200, state = (RMW_RET_OK == rmw_uros_ping_agent(100, 1)) ? AGENT_CONNECTED : AGENT_DISCONNECTED;);
+    if (state == AGENT_CONNECTED)
+    {
+      Serial.println("Executor running...");
+      rclc_executor_spin_some(&executor, RCL_MS_TO_NS(10));
+    }
+    break;
+  case AGENT_DISCONNECTED:
+    destroy_entities();
+    state = WAITING_AGENT;
+    break;
+  default:
+    break;
   }
 }
