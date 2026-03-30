@@ -8,6 +8,7 @@
 // #include <Wire.h>
 // #include "MS5837.h"
 // #define ACC_UPDATE 0x01
+// #define ANGLE_UPDATE 0x04
 
 // /////////////////////
 // /// For Micro ROS ///
@@ -134,8 +135,8 @@
 // };
 
 // const int PWM_NEUTRAL = 1500;
-// const int PWM_MIN = 1250;
-// const int PWM_MAX = 1750;
+// const int PWM_MIN = 1100;
+// const int PWM_MAX = 1900;
 // const float LOOP_DT = 0.01; // 100 Hz
 
 // // Sensor and control variables
@@ -649,12 +650,20 @@
 // }
 
 // static void SensorDataUpdata(uint32_t uiReg, uint32_t uiRegNum) {
-//   for (uint32_t i = 0; i < uiRegNum; i++) {
-//     if (uiReg == AZ) {
-//       s_cDataUpdate |= ACC_UPDATE;
+//   int i;
+//     for(i = 0; i < uiRegNum; i++)
+//     {
+//         switch(uiReg)
+//         {
+//             case AZ:
+// 				s_cDataUpdate |= ACC_UPDATE;
+//             break;
+//             case Yaw:
+// 				s_cDataUpdate |= ANGLE_UPDATE;
+//             break;
+//         }
+// 		uiReg++;
 //     }
-//     uiReg++;
-//   }
 // }
 
 // static void AutoScanSensor(void) {
@@ -761,12 +770,11 @@
 //         WitSerialDataIn(Serial6.read());
 //     }
 
-//     if (s_cDataUpdate & ACC_UPDATE)
+//     if (s_cDataUpdate & ANGLE_UPDATE)
 //     {
-//         pitch = sReg[AY] / 32768.0f * 16.0f;
-//         roll = sReg[AX] / 32768.0f * 16.0f;
-
-//         s_cDataUpdate &= ~ACC_UPDATE;
+//         pitch = sReg[Roll] / 32768.0f * 180.0f;
+//         roll = -sReg[Pitch] / 32768.0f * 180.0f;
+//         s_cDataUpdate &= ~ANGLE_UPDATE;
 //     }
 
 //     // 2. BACA KOMPAS (HWT3100)
@@ -790,21 +798,22 @@
 
 //         if (dt > 0.001 && last_compass_time > 0)
 //         {
-//         float delta = calculate_heading_error(last_yaw, yaw);
-//         yaw_rate = delta / dt;
+//           float delta = calculate_heading_error(last_yaw, yaw);
+//           yaw_rate = delta / dt;
 
-//         // reject spike
-//         if (fabs(yaw_rate) < 400.0f)
-//         {
-//             float ma = updateYawRateMA(yaw_rate);
+//           // reject spike
+//           if (fabs(yaw_rate) < 400.0f)
+//           {
+//               float ma = updateYawRateMA(yaw_rate);
 
-//             // low pass filter tambahan
-//             const float alpha = 0.3f;
-//             yaw_rate_filtered =
-//                 alpha * ma +
-//                 (1.0f - alpha) * yaw_rate_filtered;
+//               // low pass filter tambahan
+//               const float alpha = 0.3f;
+//               yaw_rate_filtered =
+//                   alpha * ma +
+//                   (1.0f - alpha) * yaw_rate_filtered;
+//           }
 //         }
-//         }
+        
 
 //         last_compass_time = now;
 //     }
@@ -886,7 +895,7 @@
 //     }
 //     else if (status == "all")
 //     {
-//         ssyController.control(0, 1, (t_yaw), thrust_ssy);
+//         ssyController.control(0, 2, (t_yaw), thrust_ssy);
 //         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
 //     }
 //     else if (status == "all_boost")
