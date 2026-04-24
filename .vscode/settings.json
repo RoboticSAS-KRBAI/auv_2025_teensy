@@ -2,5 +2,6 @@
     "C_Cpp.errorSquiggles": "disabled",
     "files.associations": {
         "cmath": "cpp"
-    }
+    },
+    "cmake.sourceDirectory": "/home/techsas/AUV_2025_TEENSY/extra_packages/auv_interfaces"
 }

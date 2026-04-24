@@ -13,6 +13,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Actuator.msg"
   "msg/ArduinoSensor.msg"
   "msg/BoundingBox.msg"
+  "msg/VelocitySensor.msg"
   "msg/Error.msg"
   "msg/Gerak.msg"
   "msg/Heading.msg"
