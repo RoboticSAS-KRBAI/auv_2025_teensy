@@ -13,4 +13,3 @@ float32 humidity
 float32 pressure_abs
 float32 pressure_relative
 float32 altitude_delta
-

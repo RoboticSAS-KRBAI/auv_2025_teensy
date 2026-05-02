@@ -26,6 +26,8 @@ void run_control_loop();
 
 // Initialize ModbusMaster HWT3100
 #define DE_RE 20
+#define DROPBALL_PIN 17
+
 
 ModbusMaster nodemod;
 
@@ -48,7 +50,7 @@ void postTransmission() {
 #include <auv_interfaces/msg/actuator.h>
 #include <auv_interfaces/msg/error.h>
 #include <auv_interfaces/msg/sensor.h>
-#include <auv_interfaces/msg/velocity_sensor.h>
+// #include <auv_interfaces/msg/velocity_sensor.h>
 #include <auv_interfaces/msg/object_difference.h>
 
 /*
@@ -76,21 +78,21 @@ rclc_executor_t executor;
 rcl_allocator_t allocator;
 
 // Declare Publishers
-rcl_publisher_t pub_pwm, pub_error, pub_sensor, pub_set_point, pub_pid, pub_status, pub_boost, pub_velocity_sensor;
+rcl_publisher_t pub_pwm, pub_error, pub_sensor, pub_set_point, pub_pid, pub_status, pub_drop_ball;
 
 // Declare Subscribers
-rcl_subscription_t sub_status, sub_boost, sub_pid, sub_set_point, sub_object_difference;
+rcl_subscription_t sub_status, sub_drop_ball, sub_pid, sub_set_point, sub_object_difference;
 
 // Declare Messages
 auv_interfaces__msg__Actuator pwm_msg;
 auv_interfaces__msg__SetPoint set_point_msg;
 auv_interfaces__msg__MultiPID pid_msg;
 auv_interfaces__msg__Error error_msg;
-auv_interfaces__msg__VelocitySensor velocity_msg;
+// auv_interfaces__msg__VelocitySensor velocity_msg;
 auv_interfaces__msg__ObjectDifference object_difference_msg;
 auv_interfaces__msg__Sensor sensor_msg;
 std_msgs__msg__String status_msg;
-std_msgs__msg__Float32 boost_msg;
+std_msgs__msg__Float32 drop_ball_msg;
 
 
 // =====================================================
@@ -146,6 +148,7 @@ float pitch = 0.0, last_pitch = 0.0, delta_pitch = 0.0;
 float roll = 0.0, last_roll = 0.0, delta_roll = 0.0;
 float depth = 0.0, last_depth = 0.0, delta_depth = 0.0;
 
+float data_drop_ball = 0.0;
 float set_point_yaw = 0, set_point_pitch = 0, set_point_roll = 0, set_point_depth = 0;
 float error_yaw = 0, error_pitch = 0, error_roll = 0, error_depth = 0;
 bool is_stable_roll = true, is_stable_pitch = true, is_stable_yaw = true, is_stable_depth = true;
@@ -153,7 +156,7 @@ float thrust_dpr[4], thrust_ssy[4];
 float t_yaw = 0.0, camera_yaw = 0.0;
 float camera_sway = 0.0;
 int yawIndex = 0;
-float constrain_boost = 150.0;
+// float constrain_boost = 150.0;
 float pwm_thruster[10] = {1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0, 1500.0};
 
 // Moving average
@@ -200,7 +203,7 @@ String status = "stop";
 
 byte pin_thruster[10] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9 };
 Servo thruster[10];
-Servo camera;
+// Servo camera;
 MS5837 sensor;
 
 // Sensor communication variables
@@ -397,12 +400,20 @@ void status_callback(const void *msgin) {
   receive_status = true;
 }
 
-bool receive_boost = false;
-void boost_callback(const void *msgin) {
-  const std_msgs__msg__Float32 *boost_msg = (const std_msgs__msg__Float32 *)msgin;
+bool receive_drop_ball = false;
+void drop_ball_callback(const void *msgin) {
+  const std_msgs__msg__Float32 *drop_ball_msg = (const std_msgs__msg__Float32 *)msgin;
 
-  constrain_boost = boost_msg->data;
-  receive_boost = true;
+  data_drop_ball = drop_ball_msg->data;
+
+  if (drop_ball_msg->data == 1.0)
+  {
+    // Logic untuk drop ball, misalnya set pin HIGH sebentar
+    digitalWrite(DROPBALL_PIN, HIGH);
+  } else {
+    digitalWrite(DROPBALL_PIN, LOW);
+  }
+  receive_drop_ball = true;
 }
 
 bool receive_set_point = false;
@@ -473,11 +484,11 @@ void timer_callback(rcl_timer_t *timer, int64_t last_call_time) {
       receive_set_point = false;
     }
 
-    if (receive_boost)
+    if (receive_drop_ball)
     {
-      boost_msg.data = constrain_boost;
-      rcl_publish(&pub_boost, &boost_msg, NULL);
-      receive_boost = false;
+      drop_ball_msg.data = data_drop_ball;
+      rcl_publish(&pub_drop_ball, &drop_ball_msg, NULL);
+      receive_drop_ball = false;
     }
 
     if (recieve_pid)
@@ -564,10 +575,10 @@ bool create_entities()
       "status_msg", &rmw_qos_profile_default);
 
   rclc_publisher_init(
-      &pub_boost,
+      &pub_drop_ball,
       &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-      "boost_msg", &rmw_qos_profile_default);
+      "drop_ball_msg", &rmw_qos_profile_default);
 
   // Initialize subscribers
   rclc_subscription_init(
@@ -577,10 +588,10 @@ bool create_entities()
       "status", &rmw_qos_profile_default);
 
   rclc_subscription_init(
-      &sub_boost,
+      &sub_drop_ball,
       &node,
       ROSIDL_GET_MSG_TYPE_SUPPORT(std_msgs, msg, Float32),
-      "boost", &rmw_qos_profile_default);
+      "drop_ball", &rmw_qos_profile_default);
 
   rclc_subscription_init(
       &sub_pid,
@@ -607,7 +618,7 @@ bool create_entities()
   executor = rclc_executor_get_zero_initialized_executor();
   rclc_executor_init(&executor, &support.context, num_handles, &allocator);
   rclc_executor_add_subscription(&executor, &sub_status, &status_msg, &status_callback, ON_NEW_DATA);
-  rclc_executor_add_subscription(&executor, &sub_boost, &boost_msg, &boost_callback, ON_NEW_DATA);
+  rclc_executor_add_subscription(&executor, &sub_drop_ball, &drop_ball_msg, &drop_ball_callback, ON_NEW_DATA);
   rclc_executor_add_subscription(&executor, &sub_pid, &pid_msg, &pid_callback, ON_NEW_DATA);
   rclc_executor_add_subscription(&executor, &sub_set_point, &set_point_msg, &set_point_callback, ON_NEW_DATA);
   rclc_executor_add_subscription(&executor, &sub_object_difference, &object_difference_msg, &object_difference_callback, ON_NEW_DATA);
@@ -632,10 +643,10 @@ void destroy_entities() {
   rcl_publisher_fini(&pub_set_point, &node);
   rcl_publisher_fini(&pub_pid, &node);
   rcl_publisher_fini(&pub_status, &node);
-  rcl_publisher_fini(&pub_boost, &node);
+  rcl_publisher_fini(&pub_drop_ball, &node);
 
   rcl_subscription_fini(&sub_status, &node);
-  rcl_subscription_fini(&sub_boost, &node);
+  rcl_subscription_fini(&sub_drop_ball, &node);
   rcl_subscription_fini(&sub_pid, &node);
   rcl_subscription_fini(&sub_set_point, &node);
   rcl_subscription_fini(&sub_object_difference, &node);
@@ -722,12 +733,12 @@ void setup() {
     thruster[i].writeMicroseconds(1500);
   }
 
-  // camera initialize servo
-  if (!camera.attach(17)) {
-    Serial.println("Failed to attach camera servo");
-  }
+  // // camera initialize servo
+  // if (!camera.attach(17)) {
+  //   Serial.println("Failed to attach camera servo");
+  // }
 
-  camera.write(100);
+  // camera.write(100);
 
   // Initialize MS5837 depth sensor
   Wire.begin();
@@ -753,7 +764,7 @@ void setup() {
   auv_interfaces__msg__ObjectDifference__init(&object_difference_msg);
   auv_interfaces__msg__Sensor__init(&sensor_msg);
   std_msgs__msg__String__init(&status_msg);
-  std_msgs__msg__Float32__init(&boost_msg);
+  std_msgs__msg__Float32__init(&drop_ball_msg);
 
   status_msg.data.data = malloc(50);
   status_msg.data.capacity = 50;
@@ -886,7 +897,7 @@ void run_control_loop()
     }
     else if (status == "backward")
     {
-        ssyController.control(0, -2, (t_yaw), thrust_ssy);
+        ssyController.control(0, -2, 0, thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "all_slow")
@@ -956,37 +967,37 @@ void run_control_loop()
     }
     else if (status == "camera_sway_forward_left")
     {
-        ssyController.control((camera_yaw+0.5), 1, (camera_yaw), thrust_ssy);
+        ssyController.control((camera_yaw+0.5), 1, (t_yaw*0.5), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_right_forward")
     {
-        ssyController.control(-3, 1, (t_yaw + 2), thrust_ssy);
+        ssyController.control(-2, 2, (t_yaw*0.5), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_left_forward")
     {
-        ssyController.control(3, 2, (t_yaw - 2), thrust_ssy);
+        ssyController.control(2, 2, (t_yaw*0.5), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_right")
     {
-        ssyController.control(-2, 0, (t_yaw), thrust_ssy);
+        ssyController.control(-1, 0, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_left")
     {
-        ssyController.control(2, 0, (t_yaw), thrust_ssy);
+        ssyController.control(1, 0, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "yaw_right")
     {
-        ssyController.control(0, 0, -0.3, thrust_ssy);
+        ssyController.control(0, 0, 0.1, thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "yaw_left")
     {
-        ssyController.control(0, 0, 0.3, thrust_ssy);
+        ssyController.control(0, 0, -0.1, thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
 
