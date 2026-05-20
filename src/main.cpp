@@ -711,6 +711,7 @@ void setup() {
   // Initialize sensor communication
   pinMode(DE_RE, OUTPUT);
   digitalWrite(DE_RE, LOW);
+  pinMode(DROPBALL_PIN, OUTPUT);
 
   Serial7.begin(115200, SERIAL_8N1);
 
@@ -874,6 +875,9 @@ void run_control_loop()
     // scaling supaya range cocok ke -3..3
     float t_yaw = u * 0.01f;
 
+    float t_yaw_sway_right_forward = t_yaw - 1.0;
+    float t_yaw_sway_left_forward = t_yaw + 1.0;
+
     // camera_yaw = -3 + ((pid_camera.calculate(camera_error) - (-500)) / (500 - (-500))) * (3 - (-3));
     camera_yaw = pid_camera.calculate(camera_error)*0.01f;
     camera_sway = -3.0f + ((pid_camera.calculate(camera_error) - (-500.0f)) / (500.0f - (-500.0f))) * (3.0f - (-3.0f));
@@ -895,9 +899,14 @@ void run_control_loop()
         ssyController.control(0, 2, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
-    else if (status == "backward")
+    else if (status == "backward_no_yaw")
     {
         ssyController.control(0, -2, 0, thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+    }
+    else if (status == "backward_yaw")
+    {
+        ssyController.control(0, -2, (t_yaw), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "all_slow")
@@ -950,6 +959,11 @@ void run_control_loop()
         ssyController.control(0, 1, camera_yaw, thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
+    else if (status == "camera_slow")
+    {
+        ssyController.control(0, .5, camera_yaw, thrust_ssy);
+        dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
+    }
     else if (status == "camera_sway")
     {
         ssyController.control(-(camera_yaw)*5, 0 , (t_yaw), thrust_ssy);
@@ -962,22 +976,22 @@ void run_control_loop()
     }
     else if (status == "camera_sway_forward_right")
     {
-        ssyController.control(-(camera_yaw+0.5), 1, (t_yaw*0.5), thrust_ssy);
+        ssyController.control(-(camera_yaw+1.5), 1, (t_yaw_sway_right_forward), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "camera_sway_forward_left")
     {
-        ssyController.control((camera_yaw+0.5), 1, (t_yaw*0.5), thrust_ssy);
+        ssyController.control((camera_yaw+1.5), 1, (t_yaw_sway_left_forward), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_right_forward")
     {
-        ssyController.control(-2, 2, (t_yaw*0.5), thrust_ssy);
+        ssyController.control(-2, 1.5, (t_yaw*0.5), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_left_forward")
     {
-        ssyController.control(2, 2, (t_yaw*0.5), thrust_ssy);
+        ssyController.control(2, 1.5, (t_yaw*0.5), thrust_ssy);
         dprController.control(pid_depth.calculate(error_depth), pid_pitch.calculate(error_pitch), pid_roll.calculate(-error_roll), thrust_dpr);
     }
     else if (status == "sway_right")
